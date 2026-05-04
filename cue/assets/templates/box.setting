@@ -1,0 +1,49 @@
+-- cue 囲み枠 (box) エフェクト用 Fusion Composition テンプレ。
+--
+-- プレースホルダ:
+--   ── 配置 ──
+--   {{POS_X}}, {{POS_Y}}     : 中心座標 (画面比率 0.0-1.0、Fusion 左下原点に変換済み)
+--   {{WIDTH}}, {{HEIGHT}}    : 画面比率 (0.0-1.0)
+--
+--   ── タイミング ──
+--   {{DURATION_FRAMES}}      : 全体保持フレーム数
+--   {{FADE_OUT_FRAMES}}      : 退場フェードフレーム数
+--
+--   ── 部品 (Python 側で動的生成、無効なら空文字) ──
+--   {{NODES_BACKGROUND}}     : Background ノード片 (背景:transparent なら空)
+--   {{NODES_BORDER}}         : Border ノード片 (border.enabled=False または width=0 なら空)
+--   {{NODES_TEXT}}           : Text+ ノード片 (text.content が空なら空)
+--
+--   ── Merge 結線 (空なら省略) ──
+--   {{MERGE_BACKGROUND}}, {{MERGE_BORDER}}, {{MERGE_TEXT}}
+--
+-- TODO: 実機で1度 Fusion に箱クリップを構築し、Save Settings で書き出した .setting を
+--       ベースに本テンプレを完成させる。現状は構造を伝えるためのプレースホルダ。
+
+{
+    Tools = ordered() {
+        BoxMask = RectangleMask {
+            Inputs = {
+                Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
+                Width  = Input { Value = {{WIDTH}}, },
+                Height = Input { Value = {{HEIGHT}}, },
+            },
+        },
+        {{NODES_BACKGROUND}}
+        {{NODES_BORDER}}
+        {{NODES_TEXT}}
+        -- 合成: Background → Border → Text の順に積む。空のレイヤーは Merge をスキップする。
+        FinalMerge = Merge1 {
+            Inputs = {
+                Background = Input { SourceOp = "MediaIn1", Source = "Output", },
+                Foreground = Input { SourceOp = "Composite", Source = "Output", },
+                FadeOutFrames = Input { Value = {{FADE_OUT_FRAMES}}, },
+                DurationFrames = Input { Value = {{DURATION_FRAMES}}, },
+                -- 実機では Background / Border / Text の各 Merge を Composite に統合する
+                BackgroundLayer = Input { Value = "{{MERGE_BACKGROUND}}", },
+                BorderLayer     = Input { Value = "{{MERGE_BORDER}}", },
+                TextLayer       = Input { Value = "{{MERGE_TEXT}}", },
+            },
+        },
+    },
+}

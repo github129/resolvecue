@@ -4,7 +4,13 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
+MAX_DISCRIMINATOR_SLOTS: int = 3
+"""クリップ名 discriminator の推奨最大スロット数。これを超えると識別子の見直しサイン。"""
 
 # ----- パス -----
 
@@ -27,17 +33,40 @@ CLIP_NAME_PREFIX: str = "cue"
 """
 
 
-def make_clip_name(effect_name: str, frame: int, discriminator: str = "") -> str:
+def make_clip_name(
+    effect_name: str,
+    frame: int,
+    discriminator: str | list[str] = "",
+) -> str:
     """衝突検出用のクリップ名を生成する。
 
     Parameters
     ----------
     effect_name : 例 "arrow"
     frame : マーカーのフレーム位置。
-    discriminator : エフェクト固有の識別子。矢印なら方向略称 (tr / r / br / ...)。
+    discriminator :
+        エフェクト固有の識別子。
+
+        - ``str`` の場合: そのまま単一スロットとして付加 (例: 矢印の "tr")
+        - ``list[str]`` の場合: アンダースコア結合し複数スロットとして付加
+          (例: 箱の ``["plain", "cw"]`` → ``cue_box_<frame>_plain_cw``)
+
+        スロット数が ``MAX_DISCRIMINATOR_SLOTS`` を超えると警告ログを出す
+        (見直しサイン)。
     """
     parts = [CLIP_NAME_PREFIX, effect_name, str(int(frame))]
-    if discriminator:
+    if isinstance(discriminator, list):
+        slots = [s.replace(" ", "") for s in discriminator if s]
+        if len(slots) > MAX_DISCRIMINATOR_SLOTS:
+            _log.warning(
+                "clip name discriminator has %d slots (recommended max: %d): %s",
+                len(slots),
+                MAX_DISCRIMINATOR_SLOTS,
+                slots,
+            )
+        if slots:
+            parts.append("_".join(slots))
+    elif discriminator:
         parts.append(discriminator.replace(" ", ""))
     return "_".join(parts)
 
@@ -88,6 +117,135 @@ ARROW_DIRECTIONS: dict[str, dict[str, float | str]] = {
     "top_left":     {"asset": "arrow_tl.png", "abbr": "tl", "pos_x": 0.20, "pos_y": 0.20, "label": "左上"},
     "top":          {"asset": "arrow_t.png",  "abbr": "t",  "pos_x": 0.50, "pos_y": 0.15, "label": "上"},
     "center":       {"asset": "arrow_c.png",  "abbr": "c",  "pos_x": 0.50, "pos_y": 0.50, "label": "中央指し"},
+}
+
+
+# ----- 囲み枠 (box) のデフォルト -----
+
+DEFAULT_BORDER_COLOR: str = "#FFFFFF"
+DEFAULT_BORDER_WIDTH_PX: int = 4
+DEFAULT_BORDER_RADIUS_PX: int = 8
+DEFAULT_BORDER_DRAW_SEC: float = 0.8        # cw / ccw のとき
+DEFAULT_BORDER_DRAW_NONE_SEC: float = 0.3   # 4辺同時 (none) のとき
+
+DEFAULT_BG_COLOR: str = "#000000"
+DEFAULT_BG_OPACITY_PCT: float = 80.0
+
+DEFAULT_TEXT_COLOR: str = "#FFFFFF"
+DEFAULT_TEXT_SIZE_PX: int = 24
+DEFAULT_TEXT_PADDING_PX: int = 16
+DEFAULT_TEXT_FADE_IN_SEC: float = 0.3
+
+DEFAULT_BOX_POS: tuple[float, float] = (0.5, 0.5)
+DEFAULT_BOX_SIZE: tuple[float, float] = (0.3, 0.2)
+
+
+RECOMMENDED_FONTS: tuple[str, ...] = (
+    "Noto Sans JP",
+    "Yu Gothic UI",
+    "Meiryo",
+    "Hiragino Sans",
+)
+"""よく使うフォント。UI でセクション分けして上に固定表示する。"""
+
+
+# ----- 囲み枠 (box) の用途プリセット -----
+# 値はドット記法でネストされた BoxParams 属性を指す (例: "border.color")。
+# ``apply_preset()`` がこれを解釈する。
+
+BOX_PRESETS: dict[str, dict] = {
+    "plain": {
+        "label": "囲み枠のみ",
+        "values": {},  # 全てデフォルト
+        "disabled_fields": [],
+    },
+    "highlight_label": {
+        "label": "ハイライト枠 + ラベル",
+        "values": {
+            "border.color": "#FFD700",
+            "text.color": "#FFFFFF",
+            "text.weight": "Bold",
+            "text.size_px": 24,
+        },
+        "disabled_fields": [],
+    },
+    "signboard_white": {
+        "label": "看板テロップ (白)",
+        "values": {
+            "background.fill_type": "solid",
+            "background.color": "#FFFFFF",
+            "background.opacity_pct": 100.0,
+            "border.enabled": False,
+            "text.color": "#000000",
+            "text.weight": "Bold",
+            "text.size_px": 28,
+            "text.align_h": "center",
+            "text.align_v": "center",
+        },
+        "disabled_fields": [
+            "border.color", "border.width_px", "border.radius_px",
+            "border.animation", "border.draw_duration_sec",
+        ],
+    },
+    "signboard_black": {
+        "label": "看板テロップ (黒)",
+        "values": {
+            "background.fill_type": "solid",
+            "background.color": "#000000",
+            "background.opacity_pct": 100.0,
+            "border.enabled": True,
+            "border.color": "#FFFFFF",
+            "border.width_px": 2,
+            "text.color": "#FFFFFF",
+            "text.weight": "Bold",
+            "text.size_px": 28,
+            "text.align_h": "center",
+            "text.align_v": "center",
+        },
+        "disabled_fields": [],
+    },
+    "translucent_panel": {
+        "label": "半透過パネル",
+        "values": {
+            "background.fill_type": "solid",
+            "background.color": "#000000",
+            "background.opacity_pct": 70.0,
+            "border.enabled": False,
+            "text.color": "#FFFFFF",
+            "text.weight": "Regular",
+            "text.size_px": 22,
+            "text.align_h": "left",
+        },
+        "disabled_fields": [
+            "border.color", "border.width_px", "border.radius_px",
+            "border.animation", "border.draw_duration_sec",
+        ],
+    },
+    "chapter_title": {
+        "label": "章タイトルカード",
+        "values": {
+            "pos_x": 0.5,
+            "pos_y": 0.5,
+            "width": 1.0,
+            "height": 0.25,
+            "background.fill_type": "solid",
+            "background.color": "#000000",
+            "background.opacity_pct": 90.0,
+            "border.enabled": False,
+            "border.animation": "none",
+            "text.color": "#FFFFFF",
+            "text.weight": "Bold",
+            "text.size_px": 48,
+            "text.align_h": "center",
+            "text.align_v": "center",
+            "duration_sec": 3.0,
+            "fade_out_sec": 0.5,
+        },
+        "disabled_fields": [
+            "border.color", "border.width_px", "border.radius_px",
+            "border.animation", "border.draw_duration_sec",
+        ],
+    },
 }
 
 

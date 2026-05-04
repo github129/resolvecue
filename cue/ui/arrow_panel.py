@@ -38,10 +38,17 @@ class ArrowPanel:
         "overwrite": "ArrowOverwrite",
     }
 
+    CUSTOM_LABEL = "(カスタム)"
+    """プリセットを選択した後にユーザーが値を変更したことを示すコンボ表示。"""
+
     def __init__(self, ui: Any) -> None:
         """``ui`` は ``fusion.UIManager``。"""
         self.ui = ui
         self._preset_keys: list[str] = list(ArrowEffect.presets().keys())
+        # プリセットを選んでパラメータを書き込んでいる最中の "カスタム" 切り替えを抑止するフラグ
+        self._applying_preset: bool = False
+        # 「カスタム」表示でも asset 解決のため direction を保持しておく必要がある
+        self._last_preset_key: str = self._preset_keys[0] if self._preset_keys else "top_right"
 
     # ----- レイアウト構築 -----
 
@@ -159,34 +166,70 @@ class ArrowPanel:
         Parameters
         ----------
         items : ``win.GetItems()`` の戻り値辞書。
+
+        プリセット ComboBox の項目構成:
+            index 0           : ``(カスタム)``  (実プリセットなし)
+            index 1..N        : 各プリセット
+        ユーザーが詳細設定を変更すると ComboBox が自動的に index 0 に切り替わる。
         """
-        # プリセットの選択肢を埋める
         combo = items[self.ID["preset_combo"]]
+        combo.AddItem(self.CUSTOM_LABEL)
         for key in self._preset_keys:
             combo.AddItem(ArrowEffect.preset_label(key))
+        # 既定は最初の実プリセット (index 1)
+        if self._preset_keys:
+            combo.CurrentIndex = 1
+            self._last_preset_key = self._preset_keys[0]
 
-        # プリセット変更で pos_x/pos_y を自動反映
         def on_preset_changed(ev: dict[str, Any]) -> None:
             idx = combo.CurrentIndex
-            if not (0 <= idx < len(self._preset_keys)):
+            if idx <= 0:
+                return  # "(カスタム)" は何もしない (表示専用)
+            preset_idx = idx - 1
+            if not (0 <= preset_idx < len(self._preset_keys)):
                 return
-            key = self._preset_keys[idx]
+            key = self._preset_keys[preset_idx]
             preset = ArrowEffect.presets()[key]
-            items[self.ID["pos_x"]].Value = float(preset["pos_x"])
-            items[self.ID["pos_y"]].Value = float(preset["pos_y"])
+            self._applying_preset = True
+            try:
+                items[self.ID["pos_x"]].Value = float(preset["pos_x"])
+                items[self.ID["pos_y"]].Value = float(preset["pos_y"])
+            finally:
+                self._applying_preset = False
+            self._last_preset_key = key
 
         combo.On[self.ID["preset_combo"]].CurrentIndexChanged = on_preset_changed
+
+        # 詳細設定の値変更で「カスタム」表示に切り替え
+        def on_value_changed(ev: dict[str, Any]) -> None:
+            if self._applying_preset:
+                return
+            combo.CurrentIndex = 0  # (カスタム)
+
+        for field_id in (
+            self.ID["scale"], self.ID["duration"], self.ID["fade_in"],
+            self.ID["fade_out"], self.ID["track"], self.ID["pos_x"], self.ID["pos_y"],
+        ):
+            items[field_id].On[field_id].ValueChanged = on_value_changed
 
     # ----- パラメータ取り出し -----
 
     def collect_params(self, items: dict[str, Any]) -> ArrowParams:
-        """現在の UI 値から ``ArrowParams`` を組み立てる。"""
+        """現在の UI 値から ``ArrowParams`` を組み立てる。
+
+        ComboBox が ``(カスタム)`` のときは ``self._last_preset_key`` を direction
+        として採用する (= 最後に選ばれたプリセットの PNG アセットを使う)。
+        """
         idx = items[self.ID["preset_combo"]].CurrentIndex
-        direction = (
-            self._preset_keys[idx]
-            if 0 <= idx < len(self._preset_keys)
-            else "top_right"
-        )
+        if idx <= 0:
+            direction = self._last_preset_key
+        else:
+            preset_idx = idx - 1
+            direction = (
+                self._preset_keys[preset_idx]
+                if 0 <= preset_idx < len(self._preset_keys)
+                else self._last_preset_key
+            )
         return ArrowParams(
             direction=direction,
             scale=float(items[self.ID["scale"]].Value),

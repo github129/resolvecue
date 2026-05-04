@@ -4,7 +4,7 @@
 
 1. Resolve に接続してマーカー一覧を取得・表示
 2. 色フィルタのチェックボックス群 (実際に使われている色だけ表示)
-3. 矢印設定パネル (``ArrowPanel``)
+3. エフェクトタブ (矢印 / 囲み枠) の切り替え
 4. 「プレビュー」「全マーカーに適用」のボタン
 5. ステータスログ表示
 """
@@ -12,17 +12,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from cue.core.markers import collect_used_colors, fetch_markers, filter_by_color
+from cue.core.markers import collect_used_colors, fetch_markers
 from cue.core.resolve_api import ResolveAPI
 from cue.core.timeline import clear_preview_track
 from cue.effects.arrow import ArrowEffect
+from cue.effects.box import BoxEffect
 from cue.effects.context import EffectContext
 from cue.triggers.marker_trigger import MarkerTrigger
 from cue.ui.arrow_panel import ArrowPanel
+from cue.ui.box_panel import BoxPanel
 
 
 WINDOW_ID = "com.cue.MainWindow"
 WINDOW_TITLE = "cue - 演出自動化"
+
+EFFECT_ARROW = "arrow"
+EFFECT_BOX = "box"
 
 
 class MainWindow:
@@ -37,12 +42,13 @@ class MainWindow:
         self.dispatcher = bmd.UIDispatcher(self.ui)
 
         self.arrow_panel = ArrowPanel(self.ui)
+        self.box_panel = BoxPanel(self.ui)
         self.win: Any = None
         self.items: dict[str, Any] = {}
 
-        # マーカー一覧キャッシュ (色フィルタ用)
         self._all_markers: list = []
         self._color_checkboxes: dict[str, Any] = {}
+        self._current_effect: str = EFFECT_ARROW
 
     # ----- 起動 -----
 
@@ -62,7 +68,7 @@ class MainWindow:
             {
                 "ID": WINDOW_ID,
                 "WindowTitle": WINDOW_TITLE,
-                "Geometry": [200, 200, 540, 760],
+                "Geometry": [200, 200, 600, 900],
             },
             ui.VGroup({"Spacing": 8, "Margin": 12}, [
                 ui.Label({"Text": WINDOW_TITLE, "Alignment": {"AlignHCenter": True}}),
@@ -79,8 +85,23 @@ class MainWindow:
                     ui.Label({"Text": "(マーカーが見つかりません)", "ID": "ColorFilterEmpty"}),
                 ]),
 
-                ui.Label({"Text": "─── 矢印設定 ───", "Alignment": {"AlignHCenter": True}}),
-                self.arrow_panel.build(),
+                # エフェクトタブ
+                ui.HGroup({"Weight": 0, "Spacing": 4}, [
+                    ui.Label({"Text": "エフェクト", "Weight": 0}),
+                    ui.Button({"ID": "TabArrowBtn", "Text": "矢印",   "Checkable": True, "Checked": True}),
+                    ui.Button({"ID": "TabBoxBtn",   "Text": "囲み枠", "Checkable": True}),
+                ]),
+
+                # 矢印パネル
+                ui.VGroup({"ID": "ArrowSection", "Weight": 0}, [
+                    ui.Label({"Text": "─── 矢印設定 ───", "Alignment": {"AlignHCenter": True}}),
+                    self.arrow_panel.build(),
+                ]),
+                # 囲み枠パネル
+                ui.VGroup({"ID": "BoxSection", "Weight": 0}, [
+                    ui.Label({"Text": "─── 囲み枠設定 ───", "Alignment": {"AlignHCenter": True}}),
+                    self.box_panel.build(),
+                ]),
 
                 # ステータスログ
                 ui.Label({"Text": "ステータス"}),
@@ -99,6 +120,8 @@ class MainWindow:
             ]),
         )
         self.items = self.win.GetItems()
+        # 起動時は矢印タブを表示
+        self._show_section(EFFECT_ARROW)
 
     # ----- マーカー取得・色フィルタ -----
 
@@ -106,7 +129,7 @@ class MainWindow:
         try:
             timeline = self.api.get_current_timeline()
             markers = fetch_markers(self.api, timeline)
-        except Exception as e:  # noqa: BLE001 - GUI なのでまとめて表示
+        except Exception as e:  # noqa: BLE001
             self._log(f"マーカー取得失敗: {e}")
             self._all_markers = []
             return
@@ -119,16 +142,7 @@ class MainWindow:
         self._log(f"マーカー {len(markers)} 件を読み込み。色: {', '.join(used_colors) or '-'}")
 
     def _rebuild_color_filter(self, colors: list[str]) -> None:
-        ui = self.ui
-        group = self.items["ColorFilterGroup"]
-        # 既存の子を全削除して再構築するのが Resolve UIManager だと面倒なので、
-        # MVP では「既存のチェックボックスを使い回し / 足りない分を追加」方式にする。
-        # 安全のため毎回 ID を再割り当てし、_color_checkboxes 辞書を更新する。
-        # 実機で挙動が問題になればここを差し替える。
         self._color_checkboxes = {}
-        # シンプルに: AddChild は環境差があるので、各色を改行区切りラベルにして、
-        # チェック操作はテキスト入力フィールドで代用するフォールバックを別途用意。
-        # ここではプレースホルダを更新するに留める。
         label_text = " / ".join(c for c in colors) if colors else "(マーカーが見つかりません)"
         try:
             self.items["ColorFilterEmpty"].Text = label_text
@@ -136,7 +150,6 @@ class MainWindow:
             pass
 
     def _selected_colors(self) -> list[str]:
-        """チェックされた色のリスト。空なら全色対象。"""
         return [c for c, cb in self._color_checkboxes.items() if cb.Checked]
 
     # ----- イベント配線 -----
@@ -151,29 +164,49 @@ class MainWindow:
         win.On["PreviewBtn"].Clicked = lambda ev: self._on_preview()
         win.On["ApplyBtn"].Clicked = lambda ev: self._on_apply_all()
 
+        win.On["TabArrowBtn"].Clicked = lambda ev: self._show_section(EFFECT_ARROW)
+        win.On["TabBoxBtn"].Clicked = lambda ev: self._show_section(EFFECT_BOX)
+
         self.arrow_panel.attach_handlers(items)
+        self.box_panel.attach_handlers(items)
+
+    # ----- セクション切り替え -----
+
+    def _show_section(self, effect_name: str) -> None:
+        self._current_effect = effect_name
+        try:
+            self.items["ArrowSection"].Hidden = effect_name != EFFECT_ARROW
+            self.items["BoxSection"].Hidden = effect_name != EFFECT_BOX
+        except Exception:  # noqa: BLE001 - UIManager 環境差ガード
+            pass
+        try:
+            self.items["TabArrowBtn"].Checked = effect_name == EFFECT_ARROW
+            self.items["TabBoxBtn"].Checked = effect_name == EFFECT_BOX
+        except Exception:  # noqa: BLE001
+            pass
 
     # ----- アクション -----
 
+    def _build_current_effect(self):
+        """現在のタブに応じて Effect インスタンスを作る。"""
+        if self._current_effect == EFFECT_BOX:
+            return BoxEffect(self.box_panel.collect_params(self.items))
+        return ArrowEffect(self.arrow_panel.collect_params(self.items))
+
     def _on_preview(self) -> None:
-        """現在のタイムライン位置に1個だけ仮配置 (cue_preview トラック)。"""
         try:
             timeline = self.api.get_current_timeline()
-            params = self.arrow_panel.collect_params(self.items)
-            effect = ArrowEffect(params)
+            effect = self._build_current_effect()
 
             errors = effect.validate()
             if errors:
                 self._log("バリデーションエラー:\n" + "\n".join(f" - {e}" for e in errors))
                 return
 
-            # プレビュー専用トラックをクリアしてから1個だけ配置
             removed = clear_preview_track(self.api, timeline)
             self._log(f"プレビュー: 既存 {removed} 件をクリア。")
 
-            # 現在の再生ヘッド位置を取得 (Resolve API 名は環境差あり)
             current_frame = self._get_current_frame(timeline)
-
             ctx = EffectContext(
                 api=self.api,
                 timeline=timeline,
@@ -187,11 +220,9 @@ class MainWindow:
             self._log(f"プレビュー失敗: {e}")
 
     def _on_apply_all(self) -> None:
-        """対象色の全マーカーに矢印を配置。"""
         try:
             timeline = self.api.get_current_timeline()
-            params = self.arrow_panel.collect_params(self.items)
-            effect = ArrowEffect(params)
+            effect = self._build_current_effect()
 
             errors = effect.validate()
             if errors:
@@ -236,17 +267,12 @@ class MainWindow:
     # ----- ヘルパ -----
 
     def _get_current_frame(self, timeline: Any) -> int:
-        """現在の再生ヘッドのフレーム位置。
-
-        Resolve API の名前はバージョン差があるため複数フォールバックする。
-        """
         for attr in ("GetCurrentTimecode",):
             method = getattr(timeline, attr, None)
             if callable(method):
                 tc = method()
                 if tc:
                     return _timecode_to_frame(tc, self.api.get_frame_rate(timeline))
-        # フォールバック: 開始フレーム
         start = timeline.GetStartFrame() if hasattr(timeline, "GetStartFrame") else 0
         return int(start or 0)
 

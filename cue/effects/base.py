@@ -100,14 +100,23 @@ class Effect(ABC):
     def apply_preset(cls, params: EffectParams, preset_name: str) -> EffectParams:
         """プリセットの値を ``params`` に書き込んで返す。
 
+        プリセット定義の構造は2形式をサポートする:
+
+        1. **フラット形式** (矢印など単純なエフェクト):
+           ``{"top_right": {"direction": "top_right", "pos_x": 0.8, ...}}``
+        2. **メタ付き形式** (箱などプリセットにラベルや disabled_fields を持たせたい場合):
+           ``{"plain": {"label": "...", "values": {...}, "disabled_fields": [...]}}``
+
+        ``values`` のキーはドット区切りでネストされたフィールドにアクセスできる
+        (例: ``"border.color"``, ``"text.size_px"``)。
         プリセットに無いフィールドは元の値を維持する。
         """
         preset = cls.presets().get(preset_name)
         if preset is None:
             raise KeyError(f"Unknown preset: {preset_name!r}")
-        for key, value in preset.items():
-            if hasattr(params, key):
-                setattr(params, key, value)
+        values = preset["values"] if "values" in preset else preset
+        for dotted_key, value in values.items():
+            _set_nested(params, dotted_key, value)
         return params
 
     # ----- バリデーション -----
@@ -215,11 +224,14 @@ class Effect(ABC):
             self.params.overwrite_existing = original_overwrite
 
     # ----- クリップ命名 (サブクラスでオーバーライド) -----
-    def _clip_discriminator(self, context: EffectContext) -> str:
+    def _clip_discriminator(self, context: EffectContext) -> str | list[str]:
         """クリップ名末尾に付与するエフェクト固有の識別子を返す。
 
-        例: 矢印なら方向略称 ("tr", "r", "br", ...)。
-        空文字を返すと ``cue_<effect>_<frame>`` のみのフラットな名前になる。
+        - ``str``: 単一スロット (例: 矢印の "tr")
+        - ``list[str]``: 複数スロット (例: 箱の ``["plain", "cw"]``)
+
+        空文字 / 空リストを返すと ``cue_<effect>_<frame>`` のみのフラットな名前になる。
+        スロット数は ``config.MAX_DISCRIMINATOR_SLOTS`` 以内が望ましい。
         """
         return ""
 
@@ -230,3 +242,22 @@ class Effect(ABC):
             raise ValueError(f"{type(self).__name__}.template_filename is empty.")
         path = config.TEMPLATES_DIR / self.template_filename
         return path.read_text(encoding="utf-8")
+
+
+def _set_nested(obj: Any, dotted_key: str, value: Any) -> bool:
+    """``"a.b.c"`` 形式のキーで ``obj`` のネストされた属性を設定する。
+
+    途中で属性が見つからない場合は何もせず False を返す。dataclass / 通常クラス
+    どちらでも使える (setattr で書き込める前提)。
+    """
+    keys = dotted_key.split(".")
+    target = obj
+    for key in keys[:-1]:
+        if not hasattr(target, key):
+            return False
+        target = getattr(target, key)
+    last = keys[-1]
+    if not hasattr(target, last):
+        return False
+    setattr(target, last, value)
+    return True
