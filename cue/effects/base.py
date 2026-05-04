@@ -161,7 +161,11 @@ class Effect(ABC):
         if errors:
             return EffectResult(success=False, message="; ".join(errors))
 
-        clip_name = config.make_clip_name(self.name, context.color, context.start_frame)
+        clip_name = config.make_clip_name(
+            self.name,
+            context.start_frame,
+            self._clip_discriminator(context),
+        )
         existing = context.api.find_clip_by_name(
             timeline=context.timeline,
             clip_name=clip_name,
@@ -209,6 +213,15 @@ class Effect(ABC):
         finally:
             self.params.track_index = original_track
             self.params.overwrite_existing = original_overwrite
+
+    # ----- クリップ命名 (サブクラスでオーバーライド) -----
+    def _clip_discriminator(self, context: EffectContext) -> str:
+        """クリップ名末尾に付与するエフェクト固有の識別子を返す。
+
+        例: 矢印なら方向略称 ("tr", "r", "br", ...)。
+        空文字を返すと ``cue_<effect>_<frame>`` のみのフラットな名前になる。
+        """
+        return ""
 
     # ----- ユーティリティ (サブクラスから利用) -----
     def load_template(self) -> str:

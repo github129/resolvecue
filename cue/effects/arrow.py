@@ -124,6 +124,11 @@ class ArrowEffect(Effect):
             template = template.replace(key, value)
         return template
 
+    def _clip_discriminator(self, context: EffectContext) -> str:
+        params: ArrowParams = self.params  # type: ignore[assignment]
+        info = config.ARROW_DIRECTIONS.get(params.direction)
+        return str(info["abbr"]) if info else ""
+
     def _asset_path(self):
         params: ArrowParams = self.params  # type: ignore[assignment]
         info = config.ARROW_DIRECTIONS.get(params.direction)

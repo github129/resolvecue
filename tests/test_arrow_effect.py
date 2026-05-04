@@ -41,14 +41,19 @@ def test_validate_rejects_unknown_direction():
     assert any("direction" in e for e in errors)
 
 
-def test_clip_name_format():
-    name = config.make_clip_name("arrow", "Red", 12345)
-    assert name == "cue_arrow_Red_f12345"
+def test_clip_name_format_with_discriminator():
+    name = config.make_clip_name("arrow", 1234, "tr")
+    assert name == "cue_arrow_1234_tr"
     assert config.is_cue_clip(name)
     assert config.is_cue_clip(name, effect_name="arrow")
     assert not config.is_cue_clip(name, effect_name="frame")
 
 
-def test_clip_name_strips_color_spaces():
-    name = config.make_clip_name("arrow", "Cool Blue", 100)
-    assert name == "cue_arrow_CoolBlue_f100"
+def test_clip_name_format_without_discriminator():
+    name = config.make_clip_name("zoom", 9999)
+    assert name == "cue_zoom_9999"
+
+
+def test_arrow_clip_discriminator_uses_direction_abbr():
+    eff = ArrowEffect(ArrowParams(direction="bottom_left"))
+    assert eff._clip_discriminator(context=None) == "bl"  # type: ignore[arg-type]

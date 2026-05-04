@@ -32,7 +32,7 @@ def test_remove_all_clips_in_track_returns_count(fake_api, fake_timeline):
         track_index=track,
         start_frame=100,
         duration_frames=72,
-        clip_name="cue_arrow_Red_f100",
+        clip_name="cue_arrow_100_tr",
         fusion_settings="dummy",
     )
     fake_api.place_fusion_clip(
@@ -40,7 +40,7 @@ def test_remove_all_clips_in_track_returns_count(fake_api, fake_timeline):
         track_index=track,
         start_frame=300,
         duration_frames=72,
-        clip_name="cue_arrow_Red_f300",
+        clip_name="cue_arrow_300_tr",
         fusion_settings="dummy",
     )
     removed = fake_api.remove_all_clips_in_track(fake_timeline, track)

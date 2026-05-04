@@ -19,22 +19,27 @@ TEMPLATES_DIR: Path = ASSETS_DIR / "templates"
 CLIP_NAME_PREFIX: str = "cue"
 """本ツールが配置するクリップに付ける接頭辞。
 
-完全な命名規約: ``cue_<effect>_<color>_f<frame>``
-例: ``cue_arrow_Red_f12345``
+完全な命名規約: ``cue_<effect>_<frame>_<discriminator>``
+例: ``cue_arrow_1234_tr`` (フレーム1234にある右上矢印)
+
+``discriminator`` はエフェクト固有の識別子。矢印なら方向略称 (tr / r / br / ...)。
+省略時は ``cue_<effect>_<frame>`` のみ。
 """
 
 
-def make_clip_name(effect_name: str, color: str, frame: int) -> str:
+def make_clip_name(effect_name: str, frame: int, discriminator: str = "") -> str:
     """衝突検出用のクリップ名を生成する。
 
     Parameters
     ----------
     effect_name : 例 "arrow"
-    color : マーカー色 (例 "Red"). Resolve のマーカー色文字列をそのまま使う。
     frame : マーカーのフレーム位置。
+    discriminator : エフェクト固有の識別子。矢印なら方向略称 (tr / r / br / ...)。
     """
-    safe_color = color.replace(" ", "")
-    return f"{CLIP_NAME_PREFIX}_{effect_name}_{safe_color}_f{frame}"
+    parts = [CLIP_NAME_PREFIX, effect_name, str(int(frame))]
+    if discriminator:
+        parts.append(discriminator.replace(" ", ""))
+    return "_".join(parts)
 
 
 def is_cue_clip(clip_name: str, effect_name: str | None = None) -> bool:
@@ -74,15 +79,15 @@ DEFAULT_SCALE: float = 1.0
 # pos_x, pos_y は 0.0-1.0 の正規化座標 (左上原点, Resolve の標準とは別途変換する)。
 
 ARROW_DIRECTIONS: dict[str, dict[str, float | str]] = {
-    "top_right":     {"asset": "arrow_tr.png", "pos_x": 0.80, "pos_y": 0.20, "label": "右上"},
-    "right":         {"asset": "arrow_r.png",  "pos_x": 0.85, "pos_y": 0.50, "label": "右"},
-    "bottom_right":  {"asset": "arrow_br.png", "pos_x": 0.80, "pos_y": 0.80, "label": "右下"},
-    "bottom":        {"asset": "arrow_b.png",  "pos_x": 0.50, "pos_y": 0.85, "label": "下"},
-    "bottom_left":   {"asset": "arrow_bl.png", "pos_x": 0.20, "pos_y": 0.80, "label": "左下"},
-    "left":          {"asset": "arrow_l.png",  "pos_x": 0.15, "pos_y": 0.50, "label": "左"},
-    "top_left":      {"asset": "arrow_tl.png", "pos_x": 0.20, "pos_y": 0.20, "label": "左上"},
-    "top":           {"asset": "arrow_t.png",  "pos_x": 0.50, "pos_y": 0.15, "label": "上"},
-    "center":        {"asset": "arrow_c.png",  "pos_x": 0.50, "pos_y": 0.50, "label": "中央指し"},
+    "top_right":    {"asset": "arrow_tr.png", "abbr": "tr", "pos_x": 0.80, "pos_y": 0.20, "label": "右上"},
+    "right":        {"asset": "arrow_r.png",  "abbr": "r",  "pos_x": 0.85, "pos_y": 0.50, "label": "右"},
+    "bottom_right": {"asset": "arrow_br.png", "abbr": "br", "pos_x": 0.80, "pos_y": 0.80, "label": "右下"},
+    "bottom":       {"asset": "arrow_b.png",  "abbr": "b",  "pos_x": 0.50, "pos_y": 0.85, "label": "下"},
+    "bottom_left":  {"asset": "arrow_bl.png", "abbr": "bl", "pos_x": 0.20, "pos_y": 0.80, "label": "左下"},
+    "left":         {"asset": "arrow_l.png",  "abbr": "l",  "pos_x": 0.15, "pos_y": 0.50, "label": "左"},
+    "top_left":     {"asset": "arrow_tl.png", "abbr": "tl", "pos_x": 0.20, "pos_y": 0.20, "label": "左上"},
+    "top":          {"asset": "arrow_t.png",  "abbr": "t",  "pos_x": 0.50, "pos_y": 0.15, "label": "上"},
+    "center":       {"asset": "arrow_c.png",  "abbr": "c",  "pos_x": 0.50, "pos_y": 0.50, "label": "中央指し"},
 }
 
 
