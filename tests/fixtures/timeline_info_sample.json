@@ -1,0 +1,11 @@
+{
+  "_comment": "タイムラインのメタ情報サンプル。timeline.GetSetting() / GetTrackCount 系の戻り値を集約。",
+  "frame_rate": "23.976",
+  "video_track_count": 3,
+  "track_names": {
+    "1": "Video 1",
+    "2": "Video 2",
+    "3": "Video 3"
+  },
+  "start_frame": 0
+}

@@ -1,0 +1,43 @@
+-- cue 矢印エフェクト用 Fusion Composition テンプレ。
+--
+-- プレースホルダ:
+--   {{ARROW_PNG}}        : 矢印 PNG の絶対パス
+--   {{POS_X}}, {{POS_Y}} : 0.0-1.0 の表示位置 (Fusion 左下原点に合わせて変換済み)
+--   {{SCALE}}            : 倍率
+--   {{FADE_IN_FRAMES}}   : フェードインのフレーム数
+--   {{FADE_OUT_FRAMES}}  : フェードアウトのフレーム数
+--   {{DURATION_FRAMES}}  : 全体の表示フレーム数
+--
+-- TODO: 実機で1度 Fusion に矢印クリップを構築し、
+--       Save Settings で書き出した .setting をベースにこのテンプレを完成させる。
+--       現状はノード構成の意図を伝えるための擬似 .setting プレースホルダ。
+
+{
+    Tools = ordered() {
+        ArrowMediaIn = MediaIn {
+            Inputs = {
+                Filename = Input { Value = "{{ARROW_PNG}}", },
+            },
+        },
+        ArrowTransform = Transform1 {
+            Inputs = {
+                Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
+                Size   = Input { Value = {{SCALE}}, },
+                Input  = Input { SourceOp = "ArrowMediaIn", Source = "Output", },
+            },
+        },
+        ArrowMerge = Merge1 {
+            Inputs = {
+                Background = Input { SourceOp = "MediaIn1",       Source = "Output", },
+                Foreground = Input { SourceOp = "ArrowTransform", Source = "Output", },
+                Blend = Input {
+                    Value = 1.0,
+                    -- フェードイン: 0->1 を {{FADE_IN_FRAMES}} で
+                    -- 表示中: 1.0
+                    -- フェードアウト: 1->0 を {{FADE_OUT_FRAMES}} で
+                    -- 実機テンプレ作成時に BezierSpline をここに展開する
+                },
+            },
+        },
+    },
+}

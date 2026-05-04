@@ -1,0 +1,7 @@
+{
+  "_comment": "Resolve API の timeline.GetMarkers() 戻り値サンプル。実機データに置き換える前提のダミー。",
+  "120":  {"color": "Red",   "name": "intro",     "note": "オープニング", "duration": 1, "customData": ""},
+  "480":  {"color": "Blue",  "name": "chapter1",  "note": "",             "duration": 1, "customData": ""},
+  "1200": {"color": "Red",   "name": "highlight", "note": "重要箇所",     "duration": 1, "customData": ""},
+  "2400": {"color": "Green", "name": "ending",    "note": "",             "duration": 1, "customData": ""}
+}
