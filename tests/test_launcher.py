@@ -97,3 +97,61 @@ def test_ensure_package_on_path_inserts_into_sys_path(launcher, monkeypatch):
         assert str(REPO_ROOT) in sys.path
     finally:
         sys.path[:] = saved
+
+
+# ----- bmd / fusion グローバル捕獲 -----
+
+
+def test_capture_resolve_globals_returns_none_outside_resolve(launcher, monkeypatch):
+    """通常の Python 実行では bmd / fusion は注入されないので両方 None。"""
+    # 環境を確実に "Resolve なし" にする
+    if "bmd" in launcher:
+        del launcher["bmd"]
+    if "fusion" in launcher:
+        del launcher["fusion"]
+    if "fu" in launcher:
+        del launcher["fu"]
+    import builtins
+    monkeypatch.delattr(builtins, "bmd", raising=False)
+    import sys as _sys
+    monkeypatch.delitem(_sys.modules, "bmd", raising=False)
+
+    bmd, fusion = launcher["_capture_resolve_globals"]()
+    assert bmd is None
+    assert fusion is None
+
+
+def test_capture_resolve_globals_picks_up_injected_bmd(launcher):
+    """Resolve が注入したのを模した状態で、bmd / fusion が取得できる。"""
+    sentinel_bmd = object()
+    sentinel_fusion = object()
+    launcher["bmd"] = sentinel_bmd
+    launcher["fusion"] = sentinel_fusion
+
+    bmd, fusion = launcher["_capture_resolve_globals"]()
+    assert bmd is sentinel_bmd
+    assert fusion is sentinel_fusion
+
+
+def test_capture_resolve_globals_falls_back_to_fu(launcher):
+    """``fusion`` 名で無く ``fu`` 名のグローバルを使うバージョンの Resolve に対応。"""
+    launcher.pop("fusion", None)
+    sentinel_fu = object()
+    launcher["fu"] = sentinel_fu
+    launcher["bmd"] = object()
+
+    _, fusion = launcher["_capture_resolve_globals"]()
+    assert fusion is sentinel_fu
+
+
+def test_capture_resolve_globals_uses_builtins_fallback(launcher, monkeypatch):
+    """グローバル名前空間に bmd が無くても builtins.bmd があれば拾う。"""
+    launcher.pop("bmd", None)
+    launcher.pop("fusion", None)
+    launcher.pop("fu", None)
+    import builtins
+    sentinel = object()
+    monkeypatch.setattr(builtins, "bmd", sentinel, raising=False)
+
+    bmd, _ = launcher["_capture_resolve_globals"]()
+    assert bmd is sentinel

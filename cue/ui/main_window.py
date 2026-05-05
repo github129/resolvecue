@@ -33,12 +33,28 @@ EFFECT_BOX = "box"
 class MainWindow:
     """エントリーポイント ``cue.py`` から呼ばれるメインウィンドウ。"""
 
-    def __init__(self, api: ResolveAPI) -> None:
+    def __init__(
+        self,
+        api: ResolveAPI,
+        bmd: Any,
+        fusion: Any | None = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        api : Resolve API ラッパー。
+        bmd : Resolve が exec 時に注入する ``bmd`` モジュール。
+              ``UIDispatcher`` の取得に必要。``import bmd`` は Resolve 環境では
+              失敗するので、エントリーポイント (cue.py) で ``globals()`` から
+              捕まえて渡してもらう。
+        fusion : Resolve の Fusion オブジェクト (``bmd.scriptapp("Fusion")``
+                 相当)。``None`` なら ``api.fusion`` を使う (内部で
+                 ``resolve.Fusion()`` 呼び出し)。
+        """
         self.api = api
-        self.fusion = api.fusion
+        self.bmd = bmd
+        self.fusion = fusion if fusion is not None else api.fusion
         self.ui = self.fusion.UIManager
-        # bmd は Resolve スクリプト環境のグローバル。Dispatcher 取得に必要。
-        import bmd  # type: ignore[import-not-found]
         self.dispatcher = bmd.UIDispatcher(self.ui)
 
         self.arrow_panel = ArrowPanel(self.ui)

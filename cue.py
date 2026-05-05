@@ -21,6 +21,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
 
 
 CUE_HOME_ENV = "CUE_HOME"
@@ -157,6 +158,38 @@ def _resolve_script_dirs() -> list[Path]:
     return candidates
 
 
+def _capture_resolve_globals() -> tuple[Any | None, Any | None]:
+    """Resolve が exec 時にスクリプトのグローバル名前空間に注入する
+    ``bmd`` / ``fusion`` を取得する。
+
+    Resolve が Workspace > Scripts でスクリプトを exec する際、
+    ``bmd`` ``fu`` ``fusion`` ``app`` ``resolve`` ``composition`` などの
+    変数を実行名前空間に注入する。これは ``import bmd`` のような通常の
+    モジュール import では取得できないため、関数の ``__globals__`` 経由で
+    捕まえる必要がある。
+
+    Resolve 外 (REPL や pytest 等) では戻り値の両方が ``None`` になる。
+
+    Returns
+    -------
+    (bmd, fusion) のタプル。取得できなかった方は ``None``。
+    """
+    g = globals()
+    bmd_module = g.get("bmd")
+    fusion_obj = g.get("fusion") or g.get("fu")
+
+    # フォールバック1: builtins に注入されているケース
+    if bmd_module is None:
+        import builtins
+        bmd_module = getattr(builtins, "bmd", None)
+
+    # フォールバック2: sys.modules にロードされているケース
+    if bmd_module is None:
+        bmd_module = sys.modules.get("bmd")
+
+    return bmd_module, fusion_obj
+
+
 def main() -> int:
     try:
         _ensure_package_on_path()
@@ -164,11 +197,24 @@ def main() -> int:
         print(f"[cue] {e}")
         return 1
 
+    # Resolve 注入グローバルから bmd / fusion を捕獲。
+    # この関数の __globals__ は Resolve の exec 名前空間と一致する。
+    bmd_module, fusion_obj = _capture_resolve_globals()
+
     try:
         from cue.core.resolve_api import ResolveAPI, ResolveConnectionError
         from cue.ui.main_window import MainWindow
     except Exception:  # noqa: BLE001
         traceback.print_exc()
+        return 1
+
+    if bmd_module is None:
+        print(
+            "[cue] bmd モジュールが見つかりません。\n"
+            "      cue は DaVinci Resolve の Workspace > Scripts > Utility > cue\n"
+            "      から起動する必要があります (通常の python 実行では bmd が\n"
+            "      Resolve から注入されないため動きません)。"
+        )
         return 1
 
     try:
@@ -178,7 +224,7 @@ def main() -> int:
         return 1
 
     try:
-        MainWindow(api).show()
+        MainWindow(api, bmd=bmd_module, fusion=fusion_obj).show()
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return 1
