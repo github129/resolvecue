@@ -1,43 +1,79 @@
--- cue 矢印エフェクト用 Fusion Composition テンプレ。
---
--- プレースホルダ:
---   {{ARROW_PNG}}        : 矢印 PNG の絶対パス
---   {{POS_X}}, {{POS_Y}} : 0.0-1.0 の表示位置 (Fusion 左下原点に合わせて変換済み)
---   {{SCALE}}            : 倍率
---   {{FADE_IN_FRAMES}}   : フェードインのフレーム数
---   {{FADE_OUT_FRAMES}}  : フェードアウトのフレーム数
---   {{DURATION_FRAMES}}  : 全体の表示フレーム数
---
--- TODO: 実機で1度 Fusion に矢印クリップを構築し、
---       Save Settings で書き出した .setting をベースにこのテンプレを完成させる。
---       現状はノード構成の意図を伝えるための擬似 .setting プレースホルダ。
-
 {
-    Tools = ordered() {
-        ArrowMediaIn = MediaIn {
-            Inputs = {
-                Filename = Input { Value = "{{ARROW_PNG}}", },
-            },
-        },
-        ArrowTransform = Transform1 {
-            Inputs = {
-                Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
-                Size   = Input { Value = {{SCALE}}, },
-                Input  = Input { SourceOp = "ArrowMediaIn", Source = "Output", },
-            },
-        },
-        ArrowMerge = Merge1 {
-            Inputs = {
-                Background = Input { SourceOp = "MediaIn1",       Source = "Output", },
-                Foreground = Input { SourceOp = "ArrowTransform", Source = "Output", },
-                Blend = Input {
-                    Value = 1.0,
-                    -- フェードイン: 0->1 を {{FADE_IN_FRAMES}} で
-                    -- 表示中: 1.0
-                    -- フェードアウト: 1->0 を {{FADE_OUT_FRAMES}} で
-                    -- 実機テンプレ作成時に BezierSpline をここに展開する
-                },
-            },
-        },
-    },
+	Tools = ordered() {
+		MediaIn1 = MediaIn {
+			ExtentSet = true,
+			CustomData = {
+				MediaProps = {
+					MEDIA_FORMAT_TYPE = "{{MEDIA_FORMAT_TYPE}}",
+					MEDIA_HAS_AUDIO = false,
+					MEDIA_HEIGHT = {{MEDIA_HEIGHT}},
+					MEDIA_IS_SOURCE_RES = true,
+					MEDIA_LAYER_DESC = {
+					},
+					MEDIA_MARK_IN = 0,
+					MEDIA_MARK_OUT = {{FRAME_END}},
+					MEDIA_NAME = "{{MEDIA_NAME}}",
+					MEDIA_NUM_FRAMES = {{MEDIA_NUM_FRAMES}},
+					MEDIA_NUM_LAYERS = 0,
+					MEDIA_PAR = 1,
+					MEDIA_PATH = "{{ARROW_PNG}}",
+					MEDIA_SRC_FRAME_RATE = 24,
+					MEDIA_START_FRAME = 0,
+					MEDIA_WIDTH = {{MEDIA_WIDTH}}
+				},
+			},
+			Inputs = {
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Layer = Input { Value = "0", },
+				ClipTimeEnd = Input { Value = {{FRAME_END}}, },
+				["Gamut.ColorSpaceNest"] = Input { Value = 1, },
+				["Gamut.GammaSpaceNest"] = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				DeepOutputMode = Input {
+					Value = 0,
+					Disabled = true,
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 55, 49.5 } },
+			Version = 1
+		},
+		Transform1 = Transform {
+			CtrlWZoom = false,
+			Inputs = {
+				Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
+				Size = Input { Value = {{SCALE}}, },
+				Input = Input {
+					SourceOp = "MediaIn1",
+					Source = "Output",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 272, -9 } },
+		},
+		Merge1 = Merge {
+			Inputs = {
+				Blend = Input {
+					SourceOp = "Merge1Blend",
+					Source = "Value",
+				},
+				Foreground = Input {
+					SourceOp = "Transform1",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 422, -7.78788 } },
+		},
+		Merge1Blend = BezierSpline {
+			SplineColor = { Red = 220, Green = 116, Blue = 220 },
+			CtrlWZoom = false,
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_START}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_FADE_IN_END}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_FADE_OUT_START}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_END}}] = { 0, Flags = { Linear = true } }
+			}
+		}
+	},
+	ActiveTool = "Transform1"
 }

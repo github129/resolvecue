@@ -1,49 +1,383 @@
--- cue 囲み枠 (box) エフェクト用 Fusion Composition テンプレ。
---
--- プレースホルダ:
---   ── 配置 ──
---   {{POS_X}}, {{POS_Y}}     : 中心座標 (画面比率 0.0-1.0、Fusion 左下原点に変換済み)
---   {{WIDTH}}, {{HEIGHT}}    : 画面比率 (0.0-1.0)
---
---   ── タイミング ──
---   {{DURATION_FRAMES}}      : 全体保持フレーム数
---   {{FADE_OUT_FRAMES}}      : 退場フェードフレーム数
---
---   ── 部品 (Python 側で動的生成、無効なら空文字) ──
---   {{NODES_BACKGROUND}}     : Background ノード片 (背景:transparent なら空)
---   {{NODES_BORDER}}         : Border ノード片 (border.enabled=False または width=0 なら空)
---   {{NODES_TEXT}}           : Text+ ノード片 (text.content が空なら空)
---
---   ── Merge 結線 (空なら省略) ──
---   {{MERGE_BACKGROUND}}, {{MERGE_BORDER}}, {{MERGE_TEXT}}
---
--- TODO: 実機で1度 Fusion に箱クリップを構築し、Save Settings で書き出した .setting を
---       ベースに本テンプレを完成させる。現状は構造を伝えるためのプレースホルダ。
-
 {
-    Tools = ordered() {
-        BoxMask = RectangleMask {
-            Inputs = {
-                Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
-                Width  = Input { Value = {{WIDTH}}, },
-                Height = Input { Value = {{HEIGHT}}, },
-            },
-        },
-        {{NODES_BACKGROUND}}
-        {{NODES_BORDER}}
-        {{NODES_TEXT}}
-        -- 合成: Background → Border → Text の順に積む。空のレイヤーは Merge をスキップする。
-        FinalMerge = Merge1 {
-            Inputs = {
-                Background = Input { SourceOp = "MediaIn1", Source = "Output", },
-                Foreground = Input { SourceOp = "Composite", Source = "Output", },
-                FadeOutFrames = Input { Value = {{FADE_OUT_FRAMES}}, },
-                DurationFrames = Input { Value = {{DURATION_FRAMES}}, },
-                -- 実機では Background / Border / Text の各 Merge を Composite に統合する
-                BackgroundLayer = Input { Value = "{{MERGE_BACKGROUND}}", },
-                BorderLayer     = Input { Value = "{{MERGE_BORDER}}", },
-                TextLayer       = Input { Value = "{{MERGE_TEXT}}", },
-            },
-        },
-    },
+	Tools = ordered() {
+		Background1 = Background {
+			Inputs = {
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.ColorSpaceNest"] = Input { Value = 1, },
+				["Gamut.GammaSpaceNest"] = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				TopLeftRed = Input { Value = {{BG_COLOR_R}}, },
+				TopLeftGreen = Input { Value = {{BG_COLOR_G}}, },
+				TopLeftBlue = Input { Value = {{BG_COLOR_B}}, },
+				TopLeftAlpha = Input { Value = {{BG_COLOR_A}}, },
+				EffectMask = Input {
+					SourceOp = "Rectangle1",
+					Source = "Mask",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { -26, -39 } },
+		},
+		Rectangle1 = RectangleMask {
+			Inputs = {
+				Filter = Input { Value = FuID { "Fast Gaussian" }, },
+				MaskWidth = Input { Value = {{CANVAS_WIDTH}}, },
+				MaskHeight = Input { Value = {{CANVAS_HEIGHT}}, },
+				PixelAspect = Input { Value = { 1, 1 }, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				ClippingMode = Input { Value = FuID { "None" }, },
+				Center = Input { Value = { {{POS_X}}, {{POS_Y}} }, },
+				Width = Input { Value = {{WIDTH}}, },
+				Height = Input { Value = {{HEIGHT}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { -27, -74 } },
+		},
+		Background2 = Background {
+			CtrlWZoom = false,
+			Inputs = {
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				TopLeftRed = Input { Value = {{BORDER_COLOR_R}}, },
+				TopLeftGreen = Input { Value = {{BORDER_COLOR_G}}, },
+				TopLeftBlue = Input { Value = {{BORDER_COLOR_B}}, },
+				TopLeftAlpha = Input { Value = {{BORDER_COLOR_A}}, },
+				EffectMask = Input {
+					SourceOp = "Rectangle2",
+					Source = "Mask",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 126, -72 } },
+		},
+		Rectangle2 = RectangleMask {
+			Inputs = {
+				Filter = Input { Value = FuID { "Fast Gaussian" }, },
+				MaskWidth = Input { Value = {{CANVAS_WIDTH}}, },
+				MaskHeight = Input { Value = {{CANVAS_HEIGHT}}, },
+				PixelAspect = Input { Value = { 1, 1 }, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				ClippingMode = Input { Value = FuID { "None" }, },
+				Center = Input {
+					SourceOp = "Rectangle2CenterX",
+					Source = "Value",
+				},
+				Width = Input {
+					SourceOp = "Rectangle2Width",
+					Source = "Value",
+				},
+				Height = Input { Value = {{BORDER_THICKNESS}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 126, -105 } },
+		},
+		Rectangle2CenterX = BezierSpline {
+			SplineColor = { Red = 60, Green = 5, Blue = 217 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_TOP_START}}] = { {{TOP_X_START}}, Flags = { Linear = true } },
+				[{{FRAME_TOP_END}}] = { {{POS_X}}, Flags = { Linear = true } }
+			}
+		},
+		Rectangle2Width = BezierSpline {
+			SplineColor = { Red = 144, Green = 229, Blue = 149 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_TOP_START}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_TOP_END}}] = { {{WIDTH}}, Flags = { Linear = true } }
+			}
+		},
+		Merge1 = Merge {
+			Inputs = {
+				Background = Input {
+					SourceOp = "Background1",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Background2",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 111, -23 } },
+		},
+		Background3 = Background {
+			NameSet = true,
+			Inputs = {
+				EffectMask = Input {
+					SourceOp = "Rectangle3",
+					Source = "Mask",
+				},
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				TopLeftRed = Input { Value = {{BORDER_COLOR_R}}, },
+				TopLeftGreen = Input { Value = {{BORDER_COLOR_G}}, },
+				TopLeftBlue = Input { Value = {{BORDER_COLOR_B}}, },
+				TopLeftAlpha = Input { Value = {{BORDER_COLOR_A}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 252, -74 } },
+		},
+		Rectangle3 = RectangleMask {
+			NameSet = true,
+			Inputs = {
+				Filter = Input { Value = FuID { "Fast Gaussian" }, },
+				MaskWidth = Input { Value = {{CANVAS_WIDTH}}, },
+				MaskHeight = Input { Value = {{CANVAS_HEIGHT}}, },
+				PixelAspect = Input { Value = { 1, 1 }, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				ClippingMode = Input { Value = FuID { "None" }, },
+				Center = Input {
+					SourceOp = "Rectangle3CenterY",
+					Source = "Value",
+				},
+				Width = Input { Value = {{BORDER_THICKNESS}}, },
+				Height = Input {
+					SourceOp = "Rectangle3Height",
+					Source = "Value",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 252, -106 } },
+		},
+		Rectangle3CenterY = BezierSpline {
+			SplineColor = { Red = 241, Green = 255, Blue = 69 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_RIGHT_START}}] = { {{RIGHT_Y_START}}, Flags = { Linear = true } },
+				[{{FRAME_RIGHT_END}}] = { {{POS_Y}}, Flags = { Linear = true } }
+			}
+		},
+		Rectangle3Height = BezierSpline {
+			SplineColor = { Red = 85, Green = 247, Blue = 84 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_RIGHT_START}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_RIGHT_END}}] = { {{HEIGHT}}, Flags = { Linear = true } }
+			}
+		},
+		Merge2 = Merge {
+			Inputs = {
+				Background = Input {
+					SourceOp = "Merge1",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Background3",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 252, -17 } },
+		},
+		Background4 = Background {
+			NameSet = true,
+			Inputs = {
+				EffectMask = Input {
+					SourceOp = "Rectangle4",
+					Source = "Mask",
+				},
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				TopLeftRed = Input { Value = {{BORDER_COLOR_R}}, },
+				TopLeftGreen = Input { Value = {{BORDER_COLOR_G}}, },
+				TopLeftBlue = Input { Value = {{BORDER_COLOR_B}}, },
+				TopLeftAlpha = Input { Value = {{BORDER_COLOR_A}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 384, -87 } },
+		},
+		Rectangle4 = RectangleMask {
+			NameSet = true,
+			Inputs = {
+				Filter = Input { Value = FuID { "Fast Gaussian" }, },
+				MaskWidth = Input { Value = {{CANVAS_WIDTH}}, },
+				MaskHeight = Input { Value = {{CANVAS_HEIGHT}}, },
+				PixelAspect = Input { Value = { 1, 1 }, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				ClippingMode = Input { Value = FuID { "None" }, },
+				Center = Input {
+					SourceOp = "Rectangle4CenterX",
+					Source = "Value",
+				},
+				Width = Input {
+					SourceOp = "Rectangle4Width",
+					Source = "Value",
+				},
+				Height = Input { Value = {{BORDER_THICKNESS}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 384, -119 } },
+		},
+		Rectangle4CenterX = BezierSpline {
+			SplineColor = { Red = 247, Green = 62, Blue = 249 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_BOTTOM_START}}] = { {{BOTTOM_X_START}}, Flags = { Linear = true } },
+				[{{FRAME_BOTTOM_END}}] = { {{POS_X}}, Flags = { Linear = true } }
+			}
+		},
+		Rectangle4Width = BezierSpline {
+			SplineColor = { Red = 88, Green = 246, Blue = 236 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_BOTTOM_START}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_BOTTOM_END}}] = { {{WIDTH}}, Flags = { Linear = true } }
+			}
+		},
+		Merge3 = Merge {
+			Inputs = {
+				Background = Input {
+					SourceOp = "Merge2",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Background4",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 389, -19 } },
+		},
+		Background5 = Background {
+			NameSet = true,
+			Inputs = {
+				EffectMask = Input {
+					SourceOp = "Rectangle5",
+					Source = "Mask",
+				},
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				TopLeftRed = Input { Value = {{BORDER_COLOR_R}}, },
+				TopLeftGreen = Input { Value = {{BORDER_COLOR_G}}, },
+				TopLeftBlue = Input { Value = {{BORDER_COLOR_B}}, },
+				TopLeftAlpha = Input { Value = {{BORDER_COLOR_A}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 568, -96 } },
+		},
+		Rectangle5 = RectangleMask {
+			NameSet = true,
+			Inputs = {
+				Filter = Input { Value = FuID { "Fast Gaussian" }, },
+				MaskWidth = Input { Value = {{CANVAS_WIDTH}}, },
+				MaskHeight = Input { Value = {{CANVAS_HEIGHT}}, },
+				PixelAspect = Input { Value = { 1, 1 }, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				ClippingMode = Input { Value = FuID { "None" }, },
+				Center = Input {
+					SourceOp = "Rectangle5CenterY",
+					Source = "Value",
+				},
+				Width = Input { Value = {{BORDER_THICKNESS}}, },
+				Height = Input {
+					SourceOp = "Rectangle5Height",
+					Source = "Value",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 568, -128 } },
+		},
+		Rectangle5CenterY = BezierSpline {
+			SplineColor = { Red = 179, Green = 247, Blue = 107 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_LEFT_START}}] = { {{LEFT_Y_START}}, Flags = { Linear = true } },
+				[{{FRAME_LEFT_END}}] = { {{POS_Y}}, Flags = { Linear = true } }
+			}
+		},
+		Rectangle5Height = BezierSpline {
+			SplineColor = { Red = 253, Green = 4, Blue = 0 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_LEFT_START}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_LEFT_END}}] = { {{HEIGHT}}, Flags = { Linear = true } }
+			}
+		},
+		Merge4 = Merge {
+			Inputs = {
+				Blend = Input {
+					SourceOp = "Merge4Blend",
+					Source = "Value",
+				},
+				Background = Input {
+					SourceOp = "Merge3",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Background5",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 542, -22 } },
+		},
+		Merge4Blend = BezierSpline {
+			SplineColor = { Red = 124, Green = 231, Blue = 198 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_BORDER_COMPLETE}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_FADE_OUT_START}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_END}}] = { 0, Flags = { Linear = true } }
+			}
+		},
+		Text1 = TextPlus {
+			Inputs = {
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Width = Input { Value = {{CANVAS_WIDTH}}, },
+				Height = Input { Value = {{CANVAS_HEIGHT}}, },
+				UseFrameFormatSettings = Input { Value = 1, },
+				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
+				Wrap = Input { Value = 1, },
+				LayoutRotation = Input { Value = 1, },
+				TransformRotation = Input { Value = 1, },
+				Softness1 = Input { Value = 1, },
+				StyledText = Input { Value = "{{TEXT_CONTENT}}", },
+				Font = Input { Value = "{{TEXT_FONT}}", },
+				Style = Input { Value = "{{TEXT_STYLE}}", },
+				Size = Input { Value = {{TEXT_SIZE}}, },
+				Red1 = Input { Value = {{TEXT_COLOR_R}}, },
+				Green1 = Input { Value = {{TEXT_COLOR_G}}, },
+				Blue1 = Input { Value = {{TEXT_COLOR_B}}, },
+				Center = Input { Value = { {{TEXT_POS_X}}, {{TEXT_POS_Y}} }, },
+				VerticalJustificationNew = Input { Value = {{TEXT_V_JUSTIFY}}, },
+				HorizontalJustificationNew = Input { Value = {{TEXT_H_JUSTIFY}}, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 708, -141 } },
+		},
+		Merge5 = Merge {
+			Inputs = {
+				Blend = Input {
+					SourceOp = "Merge5Blend",
+					Source = "Value",
+				},
+				Background = Input {
+					SourceOp = "Merge4",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Text1",
+					Source = "Output",
+				},
+				PerformDepthMerge = Input { Value = 0, }
+			},
+			ViewInfo = OperatorInfo { Pos = { 684, -21 } },
+		},
+		Merge5Blend = BezierSpline {
+			SplineColor = { Red = 252, Green = 189, Blue = 42 },
+			NameSet = true,
+			KeyFrames = {
+				[{{FRAME_BORDER_COMPLETE}}] = { 0, Flags = { Linear = true } },
+				[{{FRAME_TEXT_FADE_IN_END}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_FADE_OUT_START}}] = { 1, Flags = { Linear = true } },
+				[{{FRAME_END}}] = { 0, Flags = { Linear = true } }
+			}
+		}
+	},
+	ActiveTool = "Merge5"
 }
