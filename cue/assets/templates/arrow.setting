@@ -73,7 +73,17 @@
 				[{{FRAME_FADE_OUT_START}}] = { 1, Flags = { Linear = true } },
 				[{{FRAME_END}}] = { 0, Flags = { Linear = true } }
 			}
+		},
+		MediaOut1 = MediaOut {
+			Inputs = {
+				Index = Input { Value = "0", },
+				Input = Input {
+					SourceOp = "Merge1",
+					Source = "Output",
+				}
+			},
+			ViewInfo = OperatorInfo { Pos = { 564, -8 } },
 		}
 	},
-	ActiveTool = "Transform1"
+	ActiveTool = "MediaOut1"
 }
