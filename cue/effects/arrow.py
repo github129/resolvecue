@@ -14,7 +14,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 from cue import config
 from cue.effects.base import Effect, EffectParams
-from cue.utils import png_meta, template as template_utils
+from cue.utils import template as template_utils
 
 if TYPE_CHECKING:
     from cue.effects.context import EffectContext
@@ -98,11 +98,16 @@ class ArrowEffect(Effect):
         """完成版の ``arrow.setting`` プレースホルダを計算値で埋める。
 
         テンプレが期待するプレースホルダ:
-        - **メディア**: ``MEDIA_FORMAT_TYPE``, ``MEDIA_HEIGHT``, ``MEDIA_WIDTH``,
-          ``MEDIA_NAME``, ``MEDIA_NUM_FRAMES``, ``ARROW_PNG``
         - **配置**: ``POS_X``, ``POS_Y`` (Fusion 左下原点), ``SCALE``
         - **タイミング**: ``FRAME_START``, ``FRAME_FADE_IN_END``,
           ``FRAME_FADE_OUT_START``, ``FRAME_END``
+
+        メモ: ``MediaIn1`` の source 情報 (``MEDIA_PATH`` / ``MEDIA_NUM_FRAMES`` 等)
+        は **テンプレに含めない**。Resolve の Edit ページ Fusion clip では、
+        ``MediaIn1`` は clip 自身のソース media (= 我々が ``place_fusion_clip`` で
+        配置した PNG) に Resolve が自動バインドする。テンプレで MEDIA_PATH を
+        明示すると「source は 1 frame しか無い」と Fusion に誤解されて
+        「No frame available for MediaOut1」になる。
         """
         params: ArrowParams = self.params  # type: ignore[assignment]
         fps = context.frame_rate
@@ -119,32 +124,16 @@ class ArrowEffect(Effect):
         )
         frame_end = max(frame_fade_out_start + 1, duration_frames)
 
-        # PNG メタ情報 (失敗したらデフォルト)
-        asset_path = self._asset_path()
-        try:
-            media_w, media_h = png_meta.read_png_dimensions(asset_path)
-        except (FileNotFoundError, png_meta.NotAPngError):
-            media_w, media_h = 1920, 1080
-
         mapping = {
-            # メディア
-            "MEDIA_FORMAT_TYPE": "Picture",
-            "MEDIA_NAME":        template_utils.escape_lua_string(asset_path.name),
-            "MEDIA_NUM_FRAMES":  1,
-            "MEDIA_WIDTH":       media_w,
-            "MEDIA_HEIGHT":      media_h,
-            "ARROW_PNG":         template_utils.escape_lua_string(
-                str(asset_path).replace("\\", "/")
-            ),
             # 配置 (Fusion 左下原点)
-            "POS_X":             params.pos_x,
-            "POS_Y":             1.0 - params.pos_y,
-            "SCALE":             params.scale,
+            "POS_X":  params.pos_x,
+            "POS_Y":  1.0 - params.pos_y,
+            "SCALE":  params.scale,
             # タイミング
-            "FRAME_START":           frame_start,
-            "FRAME_FADE_IN_END":     frame_fade_in_end,
-            "FRAME_FADE_OUT_START":  frame_fade_out_start,
-            "FRAME_END":             frame_end,
+            "FRAME_START":          frame_start,
+            "FRAME_FADE_IN_END":    frame_fade_in_end,
+            "FRAME_FADE_OUT_START": frame_fade_out_start,
+            "FRAME_END":            frame_end,
         }
 
         return template_utils.render_template(self.load_template(), mapping)

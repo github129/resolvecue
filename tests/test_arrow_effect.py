@@ -78,8 +78,10 @@ def test_build_fusion_settings_resolves_all_placeholders():
     out = eff.build_fusion_settings(_StubContext())  # type: ignore[arg-type]
     # プレースホルダ ``{{...}}`` がすべて埋まっていること
     assert "{{" not in out
-    # 値の埋め込み確認 (FORMAT_TYPE = "Picture" のように、Lua キー名としては残る)
-    assert 'MEDIA_FORMAT_TYPE = "Picture"' in out
+    # MediaIn1 と Transform1 と MediaOut1 が含まれていること (テンプレ構造)
+    assert "MediaIn1 = MediaIn" in out
+    assert "Transform1 = Transform" in out
+    assert "MediaOut1 = MediaOut" in out
 
 
 def test_build_fusion_settings_fade_keyframes_strictly_increasing():
