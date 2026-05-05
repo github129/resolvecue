@@ -169,11 +169,13 @@ class ArrowPanel:
 
     # ----- イベント配線 -----
 
-    def attach_handlers(self, items: dict[str, Any]) -> None:
+    def attach_handlers(self, win: Any, items: dict[str, Any]) -> None:
         """``main_window`` から呼ばれ、UI 部品が出来上がった後にハンドラを配線する。
 
         Parameters
         ----------
+        win   : ``dispatcher.AddWindow(...)`` の戻り値。``win.On[ID].Event = handler``
+                でイベントを配線する (UIManager の標準パターン)。
         items : ``win.GetItems()`` の戻り値辞書。
 
         プリセット ComboBox の項目構成:
@@ -207,7 +209,7 @@ class ArrowPanel:
                 self._applying_preset = False
             self._last_preset_key = key
 
-        combo.On[self.ID["preset_combo"]].CurrentIndexChanged = on_preset_changed
+        win.On[self.ID["preset_combo"]].CurrentIndexChanged = on_preset_changed
 
         # 詳細設定の値変更で「カスタム」表示に切り替え
         def on_value_changed(ev: dict[str, Any]) -> None:
@@ -219,7 +221,7 @@ class ArrowPanel:
             self.ID["scale"], self.ID["duration"], self.ID["fade_in"],
             self.ID["fade_out"], self.ID["track"], self.ID["pos_x"], self.ID["pos_y"],
         ):
-            items[field_id].On[field_id].ValueChanged = on_value_changed
+            win.On[field_id].ValueChanged = on_value_changed
 
     # ----- パラメータ取り出し -----
 

@@ -185,8 +185,8 @@ class MainWindow:
         win.On["TabArrowBtn"].Clicked = lambda ev: self._show_section(EFFECT_ARROW)
         win.On["TabBoxBtn"].Clicked = lambda ev: self._show_section(EFFECT_BOX)
 
-        self.arrow_panel.attach_handlers(items)
-        self.box_panel.attach_handlers(items)
+        self.arrow_panel.attach_handlers(win, items)
+        self.box_panel.attach_handlers(win, items)
 
     # ----- セクション切り替え -----
 

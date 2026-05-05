@@ -343,7 +343,16 @@ class BoxPanel:
 
     # ----- イベント配線 -----
 
-    def attach_handlers(self, items: dict[str, Any]) -> None:
+    def attach_handlers(self, win: Any, items: dict[str, Any]) -> None:
+        """イベントを ``win.On[ID].Event = handler`` 形式で配線する。
+
+        Parameters
+        ----------
+        win   : ``dispatcher.AddWindow(...)`` の戻り値。UIManager のイベントは
+                個別ウィジェットの ``On`` ではなくウィンドウの ``On`` 経由で
+                配線するのが正しい (``widget.On`` は環境によって ``None``)。
+        items : ``win.GetItems()`` の戻り値辞書。
+        """
         # 用途プリセット ComboBox
         combo = items[self.ID["preset_combo"]]
         combo.AddItem(self.CUSTOM_LABEL)
@@ -353,7 +362,7 @@ class BoxPanel:
             combo.CurrentIndex = 1  # 最初の実プリセット
             self._last_preset_key = self._preset_keys[0]
 
-        combo.On[self.ID["preset_combo"]].CurrentIndexChanged = (
+        win.On[self.ID["preset_combo"]].CurrentIndexChanged = (
             lambda ev: self._on_preset_changed(items)
         )
 
@@ -386,30 +395,30 @@ class BoxPanel:
 
         # 3×3 揃えボタン
         for btn_id in self.ALIGN_BUTTON_IDS:
-            items[btn_id].On[btn_id].Clicked = (
+            win.On[btn_id].Clicked = (
                 lambda ev, _id=btn_id: self._on_align_clicked(items, _id)
             )
         self._update_align_buttons(items)
 
-        # 「カスタム」表示への切り替え
+        # 「カスタム」表示への切り替え (各種値変更で発火)
         for field_id in self._custom_trigger_field_ids():
-            items[field_id].On[field_id].ValueChanged = (
+            win.On[field_id].ValueChanged = (
                 lambda ev: self._mark_custom(items)
             )
-        # CheckBox / LineEdit / TextEdit / ComboBox にも同様に
-        items[self.ID["border_enabled"]].On[self.ID["border_enabled"]].Toggled = (
+        # CheckBox / LineEdit / TextEdit / ComboBox
+        win.On[self.ID["border_enabled"]].Toggled = (
             lambda ev: self._mark_custom(items)
         )
-        items[self.ID["overwrite"]].On[self.ID["overwrite"]].Toggled = (
+        win.On[self.ID["overwrite"]].Toggled = (
             lambda ev: self._mark_custom(items)
         )
         for line_edit_id in (
             self.ID["border_color"], self.ID["bg_color"], self.ID["text_color"],
         ):
-            items[line_edit_id].On[line_edit_id].TextChanged = (
+            win.On[line_edit_id].TextChanged = (
                 lambda ev: self._mark_custom(items)
             )
-        items[self.ID["text_content"]].On[self.ID["text_content"]].TextChanged = (
+        win.On[self.ID["text_content"]].TextChanged = (
             lambda ev: self._mark_custom(items)
         )
         for combo_id in (
@@ -417,7 +426,7 @@ class BoxPanel:
             self.ID["text_weight"], self.ID["text_font"],
             self.ID["text_appearance"],
         ):
-            items[combo_id].On[combo_id].CurrentIndexChanged = (
+            win.On[combo_id].CurrentIndexChanged = (
                 lambda ev: self._mark_custom(items)
             )
 
