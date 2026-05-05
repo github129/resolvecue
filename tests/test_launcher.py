@@ -23,9 +23,20 @@ LAUNCHER_PATH = REPO_ROOT / "cue.py"
 
 
 def _load_launcher_namespace() -> dict[str, Any]:
-    """``cue.py`` のソースから ``sys.exit(main())`` を除去して exec し、関数を取り出す。"""
+    """``cue.py`` のソースから ``sys.exit(main())`` を除去して exec し、関数を取り出す。
+
+    cue.py 末尾は ``if __name__ != "cue": sys.exit(main())`` の形なので、
+    その2行ブロックをまるごと除去する (関数定義だけ評価したい)。
+    """
     src = LAUNCHER_PATH.read_text(encoding="utf-8")
-    # 末尾の sys.exit(main()) を空行に置換 (関数定義だけ評価したい)
+    # 末尾の `if __name__ != "cue":\n    sys.exit(main())` ブロックを除去
+    src = re.sub(
+        r'^if __name__ != "cue":\s*\n\s+sys\.exit\(main\(\)\)\s*$',
+        "",
+        src,
+        flags=re.MULTILINE,
+    )
+    # 旧形式のフォールバック (リバートされた場合の保険)
     src = re.sub(r"^sys\.exit\(main\(\)\)\s*$", "", src, flags=re.MULTILINE)
     namespace: dict[str, Any] = {"__name__": "cue_launcher_test"}
     exec(compile(src, str(LAUNCHER_PATH), "exec"), namespace)
@@ -233,10 +244,7 @@ def test_diagnose_main_window_returns_none_for_correct_signature(launcher):
     class GoodMainWindow:
         def __init__(self, api, bmd, fusion):
             pass
-    import types
-    fake_pkg = types.ModuleType("cue")
-    fake_pkg.__file__ = "/fake/cue/__init__.py"
-    assert launcher["_diagnose_main_window"](GoodMainWindow, fake_pkg) is None
+    assert launcher["_diagnose_main_window"](GoodMainWindow) is None
 
 
 def test_diagnose_main_window_detects_missing_bmd(launcher):
@@ -244,10 +252,7 @@ def test_diagnose_main_window_detects_missing_bmd(launcher):
     class OldMainWindow:
         def __init__(self, api):  # 旧シグネチャ
             pass
-    import types
-    fake_pkg = types.ModuleType("cue")
-    fake_pkg.__file__ = "/fake/cue/__init__.py"
-    err = launcher["_diagnose_main_window"](OldMainWindow, fake_pkg)
+    err = launcher["_diagnose_main_window"](OldMainWindow)
     assert err is not None
     assert "bmd" in err
     assert "対処" in err
@@ -258,10 +263,31 @@ def test_diagnose_main_window_detects_missing_fusion(launcher):
     class PartialMainWindow:
         def __init__(self, api, bmd):  # fusion 欠
             pass
-    import types
-    err = launcher["_diagnose_main_window"](PartialMainWindow, types.ModuleType("cue"))
+    err = launcher["_diagnose_main_window"](PartialMainWindow)
     assert err is not None
     assert "fusion" in err
+
+
+def test_launcher_skips_main_when_imported_as_cue():
+    """``cue.py`` を ``import cue`` で読み込んだ場合 (=__name__ == "cue") は
+    main() を実行しないこと (再帰防止)。"""
+    src = LAUNCHER_PATH.read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {"__name__": "cue"}
+    main_called = [False]
+
+    # main 関数は呼ばれてはいけないので、置き換えで監視
+    # ただし src には main の定義があるため、その定義後 sys.exit を呼ばせない
+    # ように実行前に sys.exit を no-op に差し替える
+    real_exit = sys.exit
+    sys.exit = lambda c=0: main_called.__setitem__(0, True)
+    try:
+        exec(compile(src, str(LAUNCHER_PATH), "exec"), namespace)
+    finally:
+        sys.exit = real_exit
+
+    assert main_called[0] is False, (
+        "__name__ == 'cue' のとき main() が呼ばれてはいけない (再帰の原因)"
+    )
 
 
 def test_ensure_package_on_path_calls_clear_cache(launcher):

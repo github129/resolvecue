@@ -224,7 +224,7 @@ _REQUIRED_MAIN_WINDOW_PARAMS = ("api", "bmd", "fusion")
 """``MainWindow.__init__`` に存在するべきパラメータ。古い版を検出する基準。"""
 
 
-def _diagnose_main_window(main_window_cls: Any, cue_pkg: Any) -> str | None:
+def _diagnose_main_window(main_window_cls: Any) -> str | None:
     """``MainWindow`` がランチャーと整合する定義かを確認。
 
     シグネチャに ``api`` / ``bmd`` / ``fusion`` 全てが含まれていなければ、
@@ -252,14 +252,12 @@ def _diagnose_main_window(main_window_cls: Any, cue_pkg: Any) -> str | None:
         mw_file = inspect.getfile(main_window_cls)
     except Exception:  # noqa: BLE001
         mw_file = "<unknown>"
-    cue_file = getattr(cue_pkg, "__file__", "<unknown>")
 
     return (
         "[cue] MainWindow が古い定義です (パラメータ不足: "
         + ", ".join(missing) + ")\n"
         f"      シグネチャ : {sig}\n"
         f"      MainWindow : {mw_file}\n"
-        f"      cue package: {cue_file}\n"
         "対処手順:\n"
         "  1. 上記 'MainWindow' のファイルを最新版に差し替える\n"
         "     (差し替え済みのつもりなら、別の場所から読まれていないか確認)\n"
@@ -283,7 +281,6 @@ def main() -> int:
     bmd_module, fusion_obj = _capture_resolve_globals()
 
     try:
-        import cue as _cue_pkg  # 診断用にパッケージ本体への参照を取る
         from cue.core.resolve_api import ResolveAPI, ResolveConnectionError
         from cue.ui.main_window import MainWindow
     except Exception:  # noqa: BLE001
@@ -295,7 +292,7 @@ def main() -> int:
     # sys.path 上に別の cue/ パッケージがある、または Python プロセスの
     # キャッシュに古い定義が残留しているケース。
     # sig が古ければ「どのファイルが読まれているか」を明示してユーザーに伝える。
-    diag_err = _diagnose_main_window(MainWindow, _cue_pkg)
+    diag_err = _diagnose_main_window(MainWindow)
     if diag_err is not None:
         print(diag_err)
         return 1
@@ -333,6 +330,11 @@ def main() -> int:
     return 0
 
 
-# Resolve 経由で exec() される際は ``__name__`` の値が環境次第なので、
-# 末尾で無条件に main() を呼ぶ。cue.py はランチャー専用で他からは import されない。
-sys.exit(main())
+# Resolve は ``__name__`` を環境ごとに違う値で渡してくるので、基本は無条件に
+# main() を呼ぶ。ただし「``import cue`` が ``cue/`` パッケージではなく
+# この ``cue.py`` を解決してしまった」場合は ``__name__ == "cue"`` になる。
+# その状態で main() を呼ぶと ``from cue.X import ...`` が再び cue.py を import し、
+# main() が再帰呼び出しされて RecursionError になる。
+# よって ``__name__ == "cue"`` なら main() は走らせず、モジュールとしてだけ振る舞う。
+if __name__ != "cue":
+    sys.exit(main())
