@@ -46,13 +46,28 @@ def _ensure_package_on_path() -> None:
     """
     here = _locate_package_parent()
     if here is None:
+        searched = "\n".join(f"    - {p}" for p in _searched_locations())
         raise RuntimeError(
-            "cue パッケージの所在を特定できませんでした。\n"
-            "対応策:\n"
-            "  1. cue.py と cue/ ディレクトリを Resolve の Scripts/Utility/ に配置する\n"
-            "     Windows: %APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Support\\Fusion\\Scripts\\Utility\\\n"
-            "  2. または環境変数 CUE_HOME に cue/ パッケージの親ディレクトリの絶対パスを設定する\n"
-            f"     例: set {CUE_HOME_ENV}=C:\\path\\to\\resolvecue"
+            "cue/ パッケージディレクトリが見つかりません。\n\n"
+            "  探した場所 (各位置で ``cue/__init__.py`` の存在を確認):\n"
+            f"{searched}\n\n"
+            "対処:\n"
+            "  リポジトリの ``cue/`` ディレクトリ全体 (cue.py の隣にあるフォルダ)\n"
+            "  を上記いずれかの位置にコピーしてください。\n\n"
+            "  推奨配置 (Windows の場合):\n"
+            "    %APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Support\\Fusion\\Scripts\\Utility\\\n"
+            "    ├── cue.py             ← (既に配置済みのはず)\n"
+            "    └── cue\\               ← ★ これが不足しています\n"
+            "        ├── __init__.py\n"
+            "        ├── config.py\n"
+            "        ├── core\\\n"
+            "        ├── effects\\\n"
+            "        ├── triggers\\\n"
+            "        ├── ui\\\n"
+            "        ├── utils\\\n"
+            "        └── assets\\\n\n"
+            f"  または環境変数 {CUE_HOME_ENV} に ``cue/`` の親ディレクトリの\n"
+            f"  絶対パスを設定してください (例: set {CUE_HOME_ENV}=C:\\path\\to\\resolvecue)"
         )
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
@@ -126,20 +141,25 @@ def _locate_package_parent() -> Path | None:
     -------
     見つかった親ディレクトリ (絶対パス)。どの方法でも特定できなければ ``None``。
 
-    探索順:
+    探索順 (収集してから順に検証):
         1. ``__file__``                           (通常実行時)
         2. ``inspect.currentframe()``             (一部の exec 環境)
         3. ``os.environ[CUE_HOME]``               (ユーザー上書き)
         4. Resolve 標準スクリプトディレクトリ走査  (Utility / Comp / Edit / Tool)
+
+    すべての候補について「``cue/__init__.py`` が存在するか」を実際にチェック
+    して、最初に有効だったものを返す (cue.py だけがあって cue/ が無い場所は
+    スキップ)。
     """
-    # 1. __file__: 通常 Python 実行時はこれで OK
+    candidates: list[Path] = []
+
+    # 1. __file__
     try:
-        return Path(__file__).resolve().parent
+        candidates.append(Path(__file__).resolve().parent)
     except NameError:
         pass
 
-    # 2. inspect: 現在のフレームの code object からファイル名を取る
-    #    Resolve が ``exec(compile(src, path, 'exec'))`` ならパスが残る
+    # 2. inspect: 現在のフレームの code object からファイル名
     try:
         import inspect
 
@@ -148,28 +168,69 @@ def _locate_package_parent() -> Path | None:
             filename = frame.f_code.co_filename
             if filename and filename not in ("<string>", "<stdin>"):
                 path = Path(filename)
-                # exec の filename は絶対でも相対でもありうる
                 if not path.is_absolute():
                     path = Path.cwd() / path
                 path = path.resolve()
                 if path.exists() and path.is_file():
-                    return path.parent
-    except Exception:  # noqa: BLE001 - フォールバックなので幅広く拾う
+                    candidates.append(path.parent)
+    except Exception:  # noqa: BLE001
         pass
 
-    # 3. 環境変数 CUE_HOME: ユーザーが明示的に指定したパス
+    # 3. 環境変数 CUE_HOME
     cue_home = os.environ.get(CUE_HOME_ENV)
     if cue_home:
-        path = Path(cue_home).expanduser().resolve()
-        if _looks_like_cue_parent(path):
-            return path
+        candidates.append(Path(cue_home).expanduser().resolve())
 
-    # 4. Resolve 標準ディレクトリの走査
-    for candidate in _resolve_script_dirs():
-        if _looks_like_cue_parent(candidate):
-            return candidate
+    # 4. Resolve 標準ディレクトリ
+    candidates.extend(_resolve_script_dirs())
+
+    # 各候補で ``cue/__init__.py`` の存在を確認、最初のヒットを返す
+    seen: set[Path] = set()
+    for cand in candidates:
+        if cand in seen:
+            continue
+        seen.add(cand)
+        if _looks_like_cue_parent(cand):
+            return cand
 
     return None
+
+
+def _searched_locations() -> list[Path]:
+    """``_locate_package_parent`` が探したのと同じ候補リストを返す
+    (エラー表示用)。"""
+    locs: list[Path] = []
+    try:
+        locs.append(Path(__file__).resolve().parent)
+    except NameError:
+        pass
+    try:
+        import inspect
+        frame = inspect.currentframe()
+        if frame is not None:
+            filename = frame.f_code.co_filename
+            if filename and filename not in ("<string>", "<stdin>"):
+                p = Path(filename)
+                if not p.is_absolute():
+                    p = Path.cwd() / p
+                if p.resolve().exists():
+                    locs.append(p.resolve().parent)
+    except Exception:  # noqa: BLE001
+        pass
+    cue_home = os.environ.get(CUE_HOME_ENV)
+    if cue_home:
+        locs.append(Path(cue_home).expanduser().resolve())
+    locs.extend(_resolve_script_dirs())
+
+    # dedupe, preserve order
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for p in locs:
+        if p in seen:
+            continue
+        seen.add(p)
+        deduped.append(p)
+    return deduped
 
 
 def _looks_like_cue_parent(path: Path) -> bool:
