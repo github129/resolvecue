@@ -91,8 +91,17 @@ class BoxPanel:
         ("with_border",  "枠と同時"),
     )
 
-    def __init__(self, ui: Any) -> None:
-        self.ui = ui
+    def __init__(self, fusion: Any, bmd: Any) -> None:
+        """
+        Parameters
+        ----------
+        fusion : Resolve の Fusion オブジェクト。``UIManager`` の取得元。
+        bmd    : Resolve 注入の ``bmd`` モジュール (現状の MVP では未使用、
+                 将来の拡張のため保持)。
+        """
+        self.fusion = fusion
+        self.bmd = bmd
+        self.ui = fusion.UIManager
         self._preset_keys: list[str] = list(BoxEffect.presets().keys())
         self._applying_preset: bool = False
         self._last_preset_key: str = self._preset_keys[0] if self._preset_keys else "plain"

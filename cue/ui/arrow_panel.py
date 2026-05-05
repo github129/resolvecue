@@ -41,9 +41,18 @@ class ArrowPanel:
     CUSTOM_LABEL = "(カスタム)"
     """プリセットを選択した後にユーザーが値を変更したことを示すコンボ表示。"""
 
-    def __init__(self, ui: Any) -> None:
-        """``ui`` は ``fusion.UIManager``。"""
-        self.ui = ui
+    def __init__(self, fusion: Any, bmd: Any) -> None:
+        """
+        Parameters
+        ----------
+        fusion : Resolve の Fusion オブジェクト。``UIManager`` の取得元。
+        bmd    : Resolve 注入の ``bmd`` モジュール。``UIDispatcher`` 等を
+                 サブパネル単独で扱う必要が出た場合のために保持する
+                 (現状の MVP では未使用)。
+        """
+        self.fusion = fusion
+        self.bmd = bmd
+        self.ui = fusion.UIManager
         self._preset_keys: list[str] = list(ArrowEffect.presets().keys())
         # プリセットを選んでパラメータを書き込んでいる最中の "カスタム" 切り替えを抑止するフラグ
         self._applying_preset: bool = False

@@ -248,6 +248,16 @@ def main() -> int:
         print(f"[cue] {e}")
         return 1
 
+    # Resolve が ``fusion`` をグローバル注入していなくても、Resolve API 経由で
+    # 確実に取得できるのでフォールバックする。MainWindow は fusion を必須引数
+    # として要求するため、ここで None になっていないことを保証しておく。
+    if fusion_obj is None:
+        try:
+            fusion_obj = api.fusion
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            return 1
+
     try:
         MainWindow(api, bmd=bmd_module, fusion=fusion_obj).show()
     except Exception:  # noqa: BLE001
