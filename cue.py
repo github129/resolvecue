@@ -33,6 +33,11 @@ def _ensure_package_on_path() -> None:
 
     Resolve は ``exec()`` ベースでスクリプトを実行するため ``__file__`` が
     未定義のことがある。複数のフォールバックで自身の所在を特定する。
+
+    また、Resolve は起動時に ``cue.py`` を ``sys.modules['cue']`` として
+    登録することがある (Workspace > Scripts のスクリプト loader 実装による)。
+    これがあると ``from cue.core import ...`` が「``cue`` is not a package」で
+    失敗するため、パッケージ ``cue/`` をロードする前に競合する登録を解除する。
     """
     here = _locate_package_parent()
     if here is None:
@@ -46,6 +51,26 @@ def _ensure_package_on_path() -> None:
         )
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
+    _drop_non_package_cue_from_sys_modules()
+
+
+def _drop_non_package_cue_from_sys_modules() -> None:
+    """``sys.modules['cue']`` がパッケージでない (=ランチャー自身) なら除去する。
+
+    Resolve の Script loader は ``cue.py`` を ``sys.modules['cue']`` として
+    登録することがあり、後続の ``from cue.core import ...`` がそれを見つけて
+    「``cue`` is not a package」で失敗する原因になる。
+
+    パッケージは ``__path__`` 属性を持つ (モジュールは持たない) ので、これで
+    両者を判別する。除去後の最初の ``import cue`` は ``cue/__init__.py``
+    (= 本来のパッケージ) を解決する。
+
+    ランチャー自身の現在の実行は ``sys.modules`` 上の参照削除では止まらない
+    (関数オブジェクト等はローカル参照で生きている) ので影響なし。
+    """
+    existing = sys.modules.get("cue")
+    if existing is not None and not hasattr(existing, "__path__"):
+        del sys.modules["cue"]
 
 
 def _locate_package_parent() -> Path | None:

@@ -155,3 +155,77 @@ def test_capture_resolve_globals_uses_builtins_fallback(launcher, monkeypatch):
 
     bmd, _ = launcher["_capture_resolve_globals"]()
     assert bmd is sentinel
+
+
+# ----- sys.modules['cue'] 名前衝突対策 -----
+
+
+def test_drop_non_package_cue_removes_launcher_module(launcher):
+    """Resolve が cue.py を sys.modules['cue'] に登録した状況で、それを除去できる。"""
+    import types
+    fake_launcher_module = types.ModuleType("cue")
+    fake_launcher_module.__file__ = "/somewhere/cue.py"
+    # __path__ を持たない = パッケージではない
+    assert not hasattr(fake_launcher_module, "__path__")
+
+    saved = sys.modules.get("cue")
+    sys.modules["cue"] = fake_launcher_module
+    try:
+        launcher["_drop_non_package_cue_from_sys_modules"]()
+        assert "cue" not in sys.modules
+    finally:
+        if saved is not None:
+            sys.modules["cue"] = saved
+        else:
+            sys.modules.pop("cue", None)
+
+
+def test_drop_non_package_cue_keeps_real_package(launcher):
+    """sys.modules['cue'] が本物のパッケージ (``__path__`` あり) なら触らない。"""
+    import types
+    fake_package = types.ModuleType("cue")
+    fake_package.__path__ = ["/fake/cue"]  # パッケージマーカー
+
+    saved = sys.modules.get("cue")
+    sys.modules["cue"] = fake_package
+    try:
+        launcher["_drop_non_package_cue_from_sys_modules"]()
+        assert sys.modules.get("cue") is fake_package
+    finally:
+        if saved is not None:
+            sys.modules["cue"] = saved
+        else:
+            sys.modules.pop("cue", None)
+
+
+def test_drop_non_package_cue_handles_absent_module(launcher):
+    """sys.modules['cue'] が無くても例外を出さない。"""
+    saved = sys.modules.pop("cue", None)
+    try:
+        # 例外なく完了することの確認
+        launcher["_drop_non_package_cue_from_sys_modules"]()
+        assert "cue" not in sys.modules
+    finally:
+        if saved is not None:
+            sys.modules["cue"] = saved
+
+
+def test_ensure_package_on_path_clears_launcher_module(launcher):
+    """``_ensure_package_on_path()`` の中で sys.modules['cue'] のクリーンアップも走る。"""
+    import types
+    # _locate_package_parent を一時的に固定値返しに差し替え
+    original_locate = launcher["_locate_package_parent"]
+    launcher["_locate_package_parent"] = lambda: REPO_ROOT
+    fake_launcher = types.ModuleType("cue")
+    saved = sys.modules.get("cue")
+    sys.modules["cue"] = fake_launcher
+    try:
+        launcher["_ensure_package_on_path"]()
+        # 登録されていた non-package が外れている
+        assert sys.modules.get("cue") is not fake_launcher
+    finally:
+        launcher["_locate_package_parent"] = original_locate
+        if saved is not None:
+            sys.modules["cue"] = saved
+        else:
+            sys.modules.pop("cue", None)
