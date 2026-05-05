@@ -14,6 +14,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 from cue import config
 from cue.effects.base import Effect, EffectParams
+from cue.utils import png_meta, template as template_utils
 
 if TYPE_CHECKING:
     from cue.effects.context import EffectContext
@@ -94,35 +95,59 @@ class ArrowEffect(Effect):
         return errors
 
     def build_fusion_settings(self, context: EffectContext) -> str:
-        """テンプレ ``.setting`` を読み込んでパラメータを差し替える。
+        """完成版の ``arrow.setting`` プレースホルダを計算値で埋める。
 
-        テンプレ内に以下のプレースホルダがある前提:
-
-        - ``{{ARROW_PNG}}`` : 矢印 PNG の絶対パス
-        - ``{{POS_X}}`` , ``{{POS_Y}}`` : 0.0-1.0 の表示位置 (Fusion 座標は左下原点だが、
-          テンプレ側で変換しておくか、ここで反転して渡すかは運用に合わせる)
-        - ``{{SCALE}}`` : 倍率
-        - ``{{FADE_IN_FRAMES}}`` , ``{{FADE_OUT_FRAMES}}`` , ``{{DURATION_FRAMES}}``
+        テンプレが期待するプレースホルダ:
+        - **メディア**: ``MEDIA_FORMAT_TYPE``, ``MEDIA_HEIGHT``, ``MEDIA_WIDTH``,
+          ``MEDIA_NAME``, ``MEDIA_NUM_FRAMES``, ``ARROW_PNG``
+        - **配置**: ``POS_X``, ``POS_Y`` (Fusion 左下原点), ``SCALE``
+        - **タイミング**: ``FRAME_START``, ``FRAME_FADE_IN_END``,
+          ``FRAME_FADE_OUT_START``, ``FRAME_END``
         """
         params: ArrowParams = self.params  # type: ignore[assignment]
         fps = context.frame_rate
-        duration_frames = int(round(params.duration_sec * fps))
-        fade_in_frames = int(round(params.fade_in_sec * fps))
-        fade_out_frames = int(round(params.fade_out_sec * fps))
 
-        template = self.load_template()
-        replacements = {
-            "{{ARROW_PNG}}": str(self._asset_path()).replace("\\", "/"),
-            "{{POS_X}}": f"{params.pos_x:.4f}",
-            "{{POS_Y}}": f"{1.0 - params.pos_y:.4f}",  # Fusion は左下原点
-            "{{SCALE}}": f"{params.scale:.4f}",
-            "{{FADE_IN_FRAMES}}": str(fade_in_frames),
-            "{{FADE_OUT_FRAMES}}": str(fade_out_frames),
-            "{{DURATION_FRAMES}}": str(duration_frames),
+        duration_frames = max(1, int(round(params.duration_sec * fps)))
+        fade_in_frames = max(0, int(round(params.fade_in_sec * fps)))
+        fade_out_frames = max(0, int(round(params.fade_out_sec * fps)))
+
+        # キーフレームが単調増加になるようクランプ
+        frame_start = 0
+        frame_fade_in_end = max(frame_start + 1, fade_in_frames)
+        frame_fade_out_start = max(
+            frame_fade_in_end + 1, duration_frames - fade_out_frames
+        )
+        frame_end = max(frame_fade_out_start + 1, duration_frames)
+
+        # PNG メタ情報 (失敗したらデフォルト)
+        asset_path = self._asset_path()
+        try:
+            media_w, media_h = png_meta.read_png_dimensions(asset_path)
+        except (FileNotFoundError, png_meta.NotAPngError):
+            media_w, media_h = 1920, 1080
+
+        mapping = {
+            # メディア
+            "MEDIA_FORMAT_TYPE": "Picture",
+            "MEDIA_NAME":        template_utils.escape_lua_string(asset_path.name),
+            "MEDIA_NUM_FRAMES":  1,
+            "MEDIA_WIDTH":       media_w,
+            "MEDIA_HEIGHT":      media_h,
+            "ARROW_PNG":         template_utils.escape_lua_string(
+                str(asset_path).replace("\\", "/")
+            ),
+            # 配置 (Fusion 左下原点)
+            "POS_X":             params.pos_x,
+            "POS_Y":             1.0 - params.pos_y,
+            "SCALE":             params.scale,
+            # タイミング
+            "FRAME_START":           frame_start,
+            "FRAME_FADE_IN_END":     frame_fade_in_end,
+            "FRAME_FADE_OUT_START":  frame_fade_out_start,
+            "FRAME_END":             frame_end,
         }
-        for key, value in replacements.items():
-            template = template.replace(key, value)
-        return template
+
+        return template_utils.render_template(self.load_template(), mapping)
 
     def _clip_discriminator(self, context: EffectContext) -> str:
         params: ArrowParams = self.params  # type: ignore[assignment]

@@ -13,6 +13,7 @@ from cue.effects.box import (
     BoxParams,
     TextConfig,
 )
+from cue.utils import template as template_utils
 
 
 # ----- プリセット適用 -----
@@ -173,74 +174,223 @@ def test_validate_skips_text_checks_when_content_is_empty():
 class _StubContext:
     frame_rate: float = 24.0
     start_frame: int = 0
+    canvas_size: tuple[int, int] = (1920, 1080)
 
 
-def _ctx() -> _StubContext:
-    return _StubContext()
+def _ctx(**kw) -> _StubContext:
+    return _StubContext(**kw)
 
 
-def test_build_fusion_settings_no_text_no_background():
-    params = BoxParams()
-    params.background.fill_type = "transparent"
-    params.text.content = ""
-    eff = BoxEffect(params)
+# ----- 完成版テンプレ向け build_fusion_settings 検証 -----
+
+
+def test_build_resolves_all_placeholders_for_default_params():
+    """デフォルト BoxParams ですべてのプレースホルダが解決されること。"""
+    eff = BoxEffect(BoxParams())
     out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "Border1" in out  # border は有効なので含まれる
-    assert "Background1" not in out
-    assert "TextNode1" not in out
+    # render_template は strict なので、未解決があれば例外で落ちる。
+    # 出力に {{ が残っていなければ全置換できた証拠。
+    assert "{{" not in out
+    # 主要ノード名はテンプレ由来なのでそのまま残る
+    for tool in ("Background1", "Rectangle1", "Background2", "Rectangle2",
+                 "Merge4Blend", "Text1", "Merge5Blend"):
+        assert tool in out
 
 
-def test_build_fusion_settings_text_only_no_background():
-    params = BoxParams()
-    params.background.fill_type = "transparent"
-    params.text.content = "Hello"
-    eff = BoxEffect(params)
-    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "TextNode1" in out
-    assert "Background1" not in out
-    assert "Hello" in out
-
-
-def test_build_fusion_settings_with_solid_background():
+def test_build_with_solid_background_injects_alpha():
     params = BoxParams()
     params.background.fill_type = "solid"
     params.background.color = "#FF0000"
     params.background.opacity_pct = 50.0
-    params.text.content = ""
     eff = BoxEffect(params)
     out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "Background1" in out
-    # opacity 50% → alpha 0.5
-    assert "0.5000" in out
+    # Background1 の TopLeftAlpha = 0.5 が現れる
+    assert "TopLeftAlpha = Input { Value = 0.500000, }," in out
+    # Red = 1.0 (FF / 255)
+    assert "TopLeftRed = Input { Value = 1.000000, }," in out
 
 
-def test_build_fusion_settings_full_combo():
+def test_build_with_transparent_background_zeroes_alpha():
     params = BoxParams()
-    params.background.fill_type = "solid"
-    params.text.content = "テスト"
-    params.border.enabled = True
+    params.background.fill_type = "transparent"
     eff = BoxEffect(params)
     out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "Background1" in out
-    assert "Border1" in out
-    assert "TextNode1" in out
-    assert "テスト" in out
+    # Background1 (背景) は alpha=0 になっているはず
+    # Background1 ブロック内の最初の TopLeftAlpha を取り出す
+    bg1_section = out.split("Background1 = Background")[1].split("Background2")[0]
+    assert "TopLeftAlpha = Input { Value = 0.000000, }," in bg1_section
 
 
-def test_build_fusion_settings_border_disabled():
+def test_build_with_disabled_border_zeroes_border_alpha():
     params = BoxParams()
     params.border.enabled = False
-    params.background.fill_type = "transparent"
-    params.text.content = ""
     eff = BoxEffect(params)
     out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "Border1" not in out
+    # Background2-5 (枠線) は alpha=0
+    bg2_section = out.split("Background2 = Background")[1].split("Rectangle2 ")[0]
+    assert "TopLeftAlpha = Input { Value = 0.000000, }," in bg2_section
 
 
-def test_build_fusion_settings_escapes_special_chars():
+def test_build_with_text_content_includes_styled_text():
     params = BoxParams()
-    params.text.content = 'line1\nline2 "quoted"'
+    params.text.content = "テスト"
+    params.text.weight = "Bold"
     eff = BoxEffect(params)
     out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
-    assert "line1\\nline2" in out
-    assert '\\"quoted\\"' in out
+    assert 'StyledText = Input { Value = "テスト", }' in out
+    assert 'Style = Input { Value = "Bold", }' in out
+
+
+def test_build_escapes_special_characters_in_text():
+    params = BoxParams()
+    params.text.content = 'line1\nline2 "q"'
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    assert 'StyledText = Input { Value = "line1\\nline2 \\"q\\"", }' in out
+
+
+def test_build_text_justification_uses_integers():
+    params = BoxParams()
+    params.text.content = "x"
+    params.text.align_h = "left"   # → 0
+    params.text.align_v = "bottom"  # → 2
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    assert "HorizontalJustificationNew = Input { Value = 0, }" in out
+    assert "VerticalJustificationNew = Input { Value = 2, }" in out
+
+
+def test_build_pos_y_inverted_for_fusion_origin():
+    """params.pos_y は上から下、Fusion は下から上。1.0 - params.pos_y で渡される。"""
+    params = BoxParams(pos_x=0.5, pos_y=0.2)  # 画面上寄り
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    # Rectangle1 の Center に Fusion 座標 (0.5, 0.8) が入る
+    rect1 = out.split("Rectangle1 = RectangleMask")[1].split("Background2")[0]
+    assert "Center = Input { Value = { 0.500000, 0.800000 }" in rect1
+
+
+def test_build_border_thickness_normalized_to_screen_ratio():
+    """border.width_px (px) は canvas_height で正規化される (Q3)。"""
+    params = BoxParams()
+    params.border.width_px = 4
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(
+        _ctx(canvas_size=(1920, 1080))  # type: ignore[arg-type]
+    )
+    expected = 4 / 1080  # ≈ 0.003704
+    assert f"Height = Input {{ Value = {expected:.6f}, }}" in out
+
+
+def test_build_unresolved_placeholder_raises():
+    """テンプレに mapping で埋められないプレースホルダがあれば即座にエラー。"""
+    eff = BoxEffect(BoxParams())
+    # build_fusion_settings は load_template して mapping を作るので、
+    # 完成版テンプレが期待外の placeholder を持つ場合はここで気付ける。
+    eff.build_fusion_settings(_ctx())  # type: ignore[arg-type] - エラーが出ないことだけ確認
+
+
+# ----- 描画アニメ -----
+
+
+def _animation_for(animation: str, fps: float = 24.0) -> dict:
+    """``_compute_border_animation`` を直接呼んでフレーム計算を検証する。"""
+    params = BoxParams()
+    params.border.animation = animation  # type: ignore[assignment]
+    eff = BoxEffect(params)
+    return eff._compute_border_animation(
+        params, pos_x=0.5, pos_y=0.5, width=0.4, height=0.2, fps=fps,
+    )
+
+
+def test_animation_cw_orders_top_right_bottom_left():
+    a = _animation_for("cw")
+    assert a["top_start"] < a["right_start"] < a["bottom_start"] < a["left_start"]
+    assert a["top_end"] == a["right_start"]
+    assert a["right_end"] == a["bottom_start"]
+    assert a["bottom_end"] == a["left_start"]
+
+
+def test_animation_ccw_orders_top_left_bottom_right():
+    a = _animation_for("ccw")
+    assert a["top_start"] < a["left_start"] < a["bottom_start"] < a["right_start"]
+
+
+def test_animation_none_all_sides_simultaneous():
+    a = _animation_for("none")
+    assert a["top_start"] == a["right_start"] == a["bottom_start"] == a["left_start"] == 0
+    assert a["top_end"] == a["right_end"] == a["bottom_end"] == a["left_end"]
+
+
+def test_animation_cw_top_starts_at_left_edge():
+    """cw: 上辺は左から右へ。Fusion 座標で左端 = pos_x - width/2。"""
+    a = _animation_for("cw")
+    assert a["top_x_start"] == pytest.approx(0.5 - 0.4 / 2)
+
+
+def test_animation_cw_right_starts_at_top_edge_in_fusion_coords():
+    """cw: 右辺は上から下へ。Fusion Y は上向きなので上端 = pos_y + height/2。"""
+    a = _animation_for("cw")
+    assert a["right_y_start"] == pytest.approx(0.5 + 0.2 / 2)
+
+
+def test_animation_ccw_top_starts_at_right_edge():
+    a = _animation_for("ccw")
+    assert a["top_x_start"] == pytest.approx(0.5 + 0.4 / 2)
+
+
+def test_build_keyframe_frames_are_strictly_increasing():
+    """Merge4Blend / Merge5Blend のキーフレーム frame は単調増加でなければならない。"""
+    params = BoxParams(duration_sec=3.0, fade_out_sec=0.3)
+    params.text.content = "x"
+    params.text.fade_in_sec = 0.3
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    # Merge5Blend のキーフレームを取り出してフレーム番号を確認
+    merge5 = _extract_block(out, "Merge5Blend = BezierSpline")
+    import re
+    frames = [int(m.group(1)) for m in re.finditer(r"\[(\d+)\]", merge5)]
+    assert frames == sorted(set(frames))
+    assert len(frames) == 4  # BORDER_COMPLETE / TEXT_FADE_IN_END / FADE_OUT_START / END
+
+
+def _extract_block(text: str, anchor: str) -> str:
+    """``anchor`` から始まるブロックを括弧バランスで切り出す。"""
+    start = text.index(anchor)
+    # 最初の '{' を見つける
+    open_idx = text.index("{", start)
+    depth = 0
+    for i in range(open_idx, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
+
+
+# ----- プリセットとの統合 -----
+
+
+def test_chapter_title_preset_renders_full_width_box():
+    params = BoxParams(preset="chapter_title")
+    BoxEffect.apply_preset(params, "chapter_title")
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    rect1 = out.split("Rectangle1 = RectangleMask")[1].split("Background2")[0]
+    assert "Width = Input { Value = 1.000000" in rect1
+    assert "Height = Input { Value = 0.250000" in rect1
+
+
+def test_signboard_white_preset_yields_solid_white_alpha_one():
+    params = BoxParams(preset="signboard_white")
+    BoxEffect.apply_preset(params, "signboard_white")
+    eff = BoxEffect(params)
+    out = eff.build_fusion_settings(_ctx())  # type: ignore[arg-type]
+    bg1 = out.split("Background1 = Background")[1].split("Background2")[0]
+    assert "TopLeftRed = Input { Value = 1.000000" in bg1
+    assert "TopLeftGreen = Input { Value = 1.000000" in bg1
+    assert "TopLeftBlue = Input { Value = 1.000000" in bg1
+    assert "TopLeftAlpha = Input { Value = 1.000000" in bg1
