@@ -86,7 +86,10 @@ class MainWindow:
             {
                 "ID": WINDOW_ID,
                 "WindowTitle": WINDOW_TITLE,
-                "Geometry": [200, 200, 600, 900],
+                # 高さは box panel の全要素 + ステータスログ + アクションボタンが
+                # 入るよう余裕を持たせる (低解像度ディスプレイでも動かせるよう
+                # 上限は控えめに)
+                "Geometry": [200, 100, 600, 1100],
             },
             ui.VGroup({"Spacing": 8, "Margin": 12}, [
                 ui.Label({"Text": WINDOW_TITLE, "Alignment": {"AlignHCenter": True}}),

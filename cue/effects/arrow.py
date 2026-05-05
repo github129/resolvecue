@@ -154,6 +154,10 @@ class ArrowEffect(Effect):
         info = config.ARROW_DIRECTIONS.get(params.direction)
         return str(info["abbr"]) if info else ""
 
+    def _media_path(self):
+        """矢印エフェクトはタイムライン配置時に当該方向の PNG を使う。"""
+        return self._asset_path()
+
     def _asset_path(self):
         params: ArrowParams = self.params  # type: ignore[assignment]
         info = config.ARROW_DIRECTIONS.get(params.direction)

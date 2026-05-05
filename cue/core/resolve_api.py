@@ -164,55 +164,113 @@ class ResolveAPI:
         duration_frames: int,
         clip_name: str,
         fusion_settings: str,
+        media_path: Path | str | None = None,
     ) -> str:
         """Fusion Composition クリップをタイムラインに配置する。
 
-        実装メモ:
-        - Resolve には「空の Fusion Composition クリップ」を生成する直接 API がないため、
-          実機では以下の手順を踏む:
-            1. メディアプールに ``Fusion Composition`` を新規作成 (``AddItemListToMediaPool`` 等)
-            2. ``MediaPool.AppendToTimeline`` でタイムラインへ追加
-            3. ``TimelineItem.LoadFusionCompFromFile`` または対応 API で
-               ``fusion_settings`` を流し込む
-        - 上記は Resolve バージョンによって API 名が変わるため、
-          ``effects/arrow.py`` ではこのラッパー越しに呼び出す形にしている。
+        実装フロー:
+            1. ``media_path`` の PNG をメディアプールに取り込む
+               (``None`` なら ``cue/assets/arrows/`` の最初の PNG を
+               プレースホルダとして使う。Fusion comp が完全に上書きする
+               箱エフェクト等では中身は何でも OK)
+            2. ``MediaPool.AppendToTimeline`` でタイムラインに追加
+            3. 一時 ``.setting`` ファイルに ``fusion_settings`` を書き出して
+               ``TimelineItem.ImportFusionComp`` でロード
+
+        Resolve API には ``LoadFusionCompFromString`` のような直接読み込み API は
+        無いため、temp file 経由が公式パスとなる。
+
+        Parameters
+        ----------
+        media_path : クリップのソースメディア。矢印では当該 PNG、箱では None
+                     (= プレースホルダ PNG)。
 
         Returns
         -------
-        配置した TimelineItem の識別子 (Resolve API が返すものをそのまま返す)。
+        配置した TimelineItem の識別子。
         """
-        # NOTE: 実機接続時に最終仕上げが必要。MVP では呼び出し点を統一しておく。
         media_pool = self.get_media_pool()
-        comp_item = media_pool.AddTimelineFusionConnection() if hasattr(
-            media_pool, "AddTimelineFusionConnection"
-        ) else None
 
+        # ----- 1. メディア準備 -----
+        media_item = self._import_media_or_placeholder(media_pool, media_path)
+
+        # ----- 2. タイムラインへ追加 -----
+        self.ensure_track(timeline, track_index)
+        end_frame = max(1, duration_frames)
         clip_info = {
-            "mediaPoolItem": comp_item,
-            "startFrame": start_frame,
-            "endFrame": start_frame + max(1, duration_frames),
-            "trackIndex": track_index,
-            "mediaType": 1,  # video
+            "mediaPoolItem": media_item,
+            "startFrame": 0,                    # ソース上の開始フレーム
+            "endFrame": end_frame,              # ソース上の終了フレーム (= 表示時間)
+            "recordFrame": int(start_frame),    # タイムライン上の配置フレーム
+            "trackIndex": int(track_index),
+            "mediaType": 1,                     # 1=video
         }
         appended = media_pool.AppendToTimeline([clip_info])
         if not appended:
-            raise RuntimeError("Fusion Composition クリップの配置に失敗しました。")
+            raise RuntimeError(
+                f"AppendToTimeline に失敗しました (clip_info={clip_info!r})"
+            )
         timeline_item = appended[0]
-        timeline_item.SetName(clip_name)
+        try:
+            timeline_item.SetName(clip_name)
+        except Exception:  # noqa: BLE001 - SetName は環境差で失敗することがある
+            pass
 
-        if hasattr(timeline_item, "LoadFusionCompFromString"):
-            timeline_item.LoadFusionCompFromString(fusion_settings)
-        elif hasattr(timeline_item, "ImportFusionComp"):
-            # フォールバック: 一時ファイルに書き出してインポート
-            tmp = config.TEMPLATES_DIR / f"_tmp_{clip_name}.setting"
-            tmp.write_text(fusion_settings, encoding="utf-8")
+        # ----- 3. Fusion Composition を適用 -----
+        self._apply_fusion_comp(timeline_item, fusion_settings, clip_name)
+
+        try:
+            return timeline_item.GetUniqueId()
+        except Exception:  # noqa: BLE001
+            return clip_name
+
+    def _import_media_or_placeholder(
+        self, media_pool: Any, media_path: Path | str | None
+    ) -> Any:
+        """``media_path`` をメディアプールに取り込む。``None`` ならプレースホルダ。"""
+        from cue import config
+
+        if media_path is None:
+            arrow_pngs = sorted(config.ARROWS_DIR.glob("arrow_*.png"))
+            if not arrow_pngs:
+                raise RuntimeError(
+                    "プレースホルダ PNG が見つかりません: "
+                    f"{config.ARROWS_DIR}\n"
+                    "矢印 PNG を1枚以上配置してください。"
+                )
+            media_path = arrow_pngs[0]
+        items = media_pool.ImportMedia([str(media_path)])
+        if not items:
+            raise RuntimeError(f"ImportMedia に失敗しました: {media_path}")
+        return items[0]
+
+    def _apply_fusion_comp(
+        self, timeline_item: Any, fusion_settings: str, clip_name: str
+    ) -> None:
+        """``fusion_settings`` (.setting テキスト) を temp ファイル経由で適用。"""
+        import os
+        import tempfile
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".setting", prefix=f"cue_{clip_name}_")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(fusion_settings)
+            if hasattr(timeline_item, "ImportFusionComp"):
+                ok = timeline_item.ImportFusionComp(tmp_path)
+                if ok is False:
+                    raise RuntimeError(
+                        f"ImportFusionComp に失敗しました (clip={clip_name})"
+                    )
+            else:
+                raise RuntimeError(
+                    "TimelineItem.ImportFusionComp が利用できません "
+                    "(Resolve のバージョンを確認してください)"
+                )
+        finally:
             try:
-                timeline_item.ImportFusionComp(str(tmp))
-            finally:
-                if tmp.exists():
-                    tmp.unlink()
-
-        return timeline_item.GetUniqueId() if hasattr(timeline_item, "GetUniqueId") else clip_name
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 def _connect_to_resolve() -> Any | None:

@@ -198,6 +198,7 @@ class Effect(ABC):
             duration_frames=int(round(self.params.duration_sec * context.frame_rate)),
             clip_name=clip_name,
             fusion_settings=fusion_settings,
+            media_path=self._media_path(),
         )
 
         return EffectResult(
@@ -222,6 +223,16 @@ class Effect(ABC):
         finally:
             self.params.track_index = original_track
             self.params.overwrite_existing = original_overwrite
+
+    # ----- ソースメディア (サブクラスでオーバーライド) -----
+    def _media_path(self) -> Any:
+        """このエフェクトがタイムライン配置時に使うソースメディアのパス。
+
+        - 矢印のように特定の PNG を使うエフェクトはオーバーライドしてパスを返す
+        - 箱のように Fusion 内で完結するエフェクトは ``None`` を返す
+          (``ResolveAPI`` 側でプレースホルダ PNG が選ばれる)
+        """
+        return None
 
     # ----- クリップ命名 (サブクラスでオーバーライド) -----
     def _clip_discriminator(self, context: EffectContext) -> str | list[str]:

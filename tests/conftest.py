@@ -194,6 +194,7 @@ class FakeResolveAPI:
         duration_frames: int,
         clip_name: str,
         fusion_settings: str,
+        media_path=None,
     ) -> str:
         media_pool = FakeMediaPool(timeline)
         clip_info = {
