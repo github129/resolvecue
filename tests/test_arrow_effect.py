@@ -78,10 +78,29 @@ def test_build_fusion_settings_resolves_all_placeholders():
     out = eff.build_fusion_settings(_StubContext())  # type: ignore[arg-type]
     # プレースホルダ ``{{...}}`` がすべて埋まっていること
     assert "{{" not in out
-    # MediaIn1 と Transform1 と MediaOut1 が含まれていること (テンプレ構造)
+    # 主要ノード構造
     assert "MediaIn1 = MediaIn" in out
     assert "Transform1 = Transform" in out
     assert "MediaOut1 = MediaOut" in out
+    # メディアプロパティが埋め込まれていること
+    assert 'MEDIA_FORMAT_TYPE = "Picture"' in out
+    # ★ MEDIA_NUM_FRAMES は 1 ではなく clip 総フレーム数 = duration_frames と
+    #   一致しないと Fusion が "No frame available for MediaOut1" を出す
+    assert "MEDIA_NUM_FRAMES = 1," not in out
+
+
+def test_build_fusion_settings_media_num_frames_matches_duration():
+    """MEDIA_NUM_FRAMES は duration_frames と整合 (≠ 1)。"""
+    params = ArrowParams(duration_sec=3.0, fade_in_sec=0.3, fade_out_sec=0.3)
+    eff = ArrowEffect(params)
+    out = eff.build_fusion_settings(_StubContext(frame_rate=24.0))  # type: ignore[arg-type]
+    # 24fps × 3.0sec = 72 frames, ただし実装は frame_end を最低でも
+    # frame_fade_out_start + 1 にクランプするので >= 72
+    import re
+    m = re.search(r"MEDIA_NUM_FRAMES = (\d+)", out)
+    assert m is not None
+    nf = int(m.group(1))
+    assert nf >= 72
 
 
 def test_build_fusion_settings_fade_keyframes_strictly_increasing():

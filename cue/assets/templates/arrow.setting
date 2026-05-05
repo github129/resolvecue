@@ -1,7 +1,31 @@
 {
 	Tools = ordered() {
 		MediaIn1 = MediaIn {
+			ExtentSet = true,
+			CustomData = {
+				MediaProps = {
+					MEDIA_FORMAT_TYPE = "{{MEDIA_FORMAT_TYPE}}",
+					MEDIA_HAS_AUDIO = false,
+					MEDIA_HEIGHT = {{MEDIA_HEIGHT}},
+					MEDIA_IS_SOURCE_RES = true,
+					MEDIA_LAYER_DESC = {
+					},
+					MEDIA_MARK_IN = 0,
+					MEDIA_MARK_OUT = {{FRAME_END}},
+					MEDIA_NAME = "{{MEDIA_NAME}}",
+					MEDIA_NUM_FRAMES = {{MEDIA_NUM_FRAMES}},
+					MEDIA_NUM_LAYERS = 0,
+					MEDIA_PAR = 1,
+					MEDIA_PATH = "{{ARROW_PNG}}",
+					MEDIA_SRC_FRAME_RATE = 24,
+					MEDIA_START_FRAME = 0,
+					MEDIA_WIDTH = {{MEDIA_WIDTH}}
+				},
+			},
 			Inputs = {
+				GlobalOut = Input { Value = {{FRAME_END}}, },
+				Layer = Input { Value = "0", },
+				ClipTimeEnd = Input { Value = {{FRAME_END}}, },
 				["Gamut.ColorSpaceNest"] = Input { Value = 1, },
 				["Gamut.GammaSpaceNest"] = Input { Value = 1, },
 				["Gamut.SLogVersion"] = Input { Value = FuID { "SLog2" }, },
