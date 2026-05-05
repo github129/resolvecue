@@ -236,6 +236,56 @@ def test_clear_cache_handles_absent_modules(launcher):
         _restore_cue_modules(saved)
 
 
+# ----- 強制パッケージロード (Resolve 環境での cue.py / cue/ 名前衝突対策) -----
+
+
+def test_force_load_cue_package_pins_real_package(launcher):
+    """``_force_load_cue_package`` が cue/__init__.py を sys.modules['cue'] に固定する。"""
+    saved = _saved_cue_modules()
+    try:
+        # cue.py が偽のスクリプトとして sys.modules['cue'] に居る状況を作る
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+        import types
+        fake_script_module = types.ModuleType("cue")
+        fake_script_module.__file__ = "/fake/cue.py"
+        # __path__ なし = パッケージではない (これが問題状況)
+        sys.modules["cue"] = fake_script_module
+        assert not hasattr(sys.modules["cue"], "__path__")
+
+        launcher["_force_load_cue_package"](REPO_ROOT)
+
+        # 上書きされて、本物のパッケージになっている
+        assert hasattr(sys.modules["cue"], "__path__")
+        assert sys.modules["cue"].__file__.endswith("cue/__init__.py")
+    finally:
+        _restore_cue_modules(saved)
+
+
+def test_force_load_cue_package_raises_when_init_missing(launcher, tmp_path):
+    """``cue/__init__.py`` が無い場所を渡すと明示エラー。"""
+    import pytest as _pytest
+    with _pytest.raises(RuntimeError, match="__init__.py が見つかりません"):
+        launcher["_force_load_cue_package"](tmp_path)
+
+
+def test_force_load_cue_package_enables_submodule_imports(launcher):
+    """強制ロード後は ``from cue.core.resolve_api import ResolveAPI`` が通ること。"""
+    saved = _saved_cue_modules()
+    try:
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+
+        launcher["_force_load_cue_package"](REPO_ROOT)
+
+        # サブモジュール import が成功する (= __path__ がパッケージとして機能している)
+        from cue.core.resolve_api import ResolveAPI  # noqa: F401
+    finally:
+        _restore_cue_modules(saved)
+
+
 # ----- MainWindow シグネチャ診断 -----
 
 

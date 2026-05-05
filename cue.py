@@ -29,17 +29,20 @@ CUE_HOME_ENV = "CUE_HOME"
 
 
 def _ensure_package_on_path() -> None:
-    """``cue/`` パッケージを import 可能にするため、その親ディレクトリを ``sys.path`` に挿入する。
+    """``cue/`` パッケージを import 可能にする。
 
-    Resolve は ``exec()`` ベースでスクリプトを実行するため ``__file__`` が
-    未定義のことがある。複数のフォールバックで自身の所在を特定する。
+    Resolve の挙動上の罠が複数あるため、以下を順に行う:
 
-    また、Resolve は長時間プロセスでモジュールキャッシュ (``sys.modules``) を
-    抱え続けるため、開発中にファイルを更新しても再実行時に古いクラス定義が
-    再利用されてしまう。``_clear_cue_modules_cache()`` で都度キャッシュを
-    パージし、毎回ディスクからフレッシュにロードさせる。
-    Resolve loader が ``cue.py`` を ``sys.modules['cue']`` に登録する
-    ケースにもこのクリアで対応できる (パッケージ・非パッケージ問わず除去)。
+    1. ``__file__`` 等から自身の所在 ``here`` を特定
+       (``_locate_package_parent`` が exec 環境にも対応した多段フォールバック)
+    2. ``sys.path`` に ``here`` を追加 (まだ無ければ)
+    3. ``sys.modules`` から ``cue`` / ``cue.*`` のキャッシュを除去
+       (Resolve は同一 Python プロセスを使い回すため、開発中の差分反映に必要)
+    4. ``cue/__init__.py`` を明示的にパッケージとしてロードし
+       ``sys.modules['cue']`` に固定 (``_force_load_cue_package``)
+       これは Resolve 環境で ``cue.py`` (このランチャー自身) が
+       ``cue`` 名で先に解決されてしまう問題への対応:
+       自動 import 解決に頼らず明示ロードすることで確実にパッケージを掴む。
     """
     here = _locate_package_parent()
     if here is None:
@@ -54,6 +57,44 @@ def _ensure_package_on_path() -> None:
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
     _clear_cue_modules_cache()
+    _force_load_cue_package(here)
+
+
+def _force_load_cue_package(here: Path) -> None:
+    """``cue/__init__.py`` を 'cue' として明示的にロードし sys.modules に登録する。
+
+    Resolve では ``cue.py`` (このランチャー) と ``cue/`` (パッケージ) が同じ
+    ディレクトリに置かれており、Python の自動 import 解決が ``cue.py`` を
+    ``'cue'`` として選んでしまうケースがある (Resolve のスクリプトローダー
+    実装が独自の path hook を入れている可能性)。その状態だと
+    ``from cue.core import ...`` は「``cue`` is not a package」で失敗する。
+
+    本関数は ``importlib.util.spec_from_file_location`` で
+    ``submodule_search_locations`` を明示的に指定して ``cue/__init__.py`` を
+    パッケージとしてロードし、``sys.modules['cue']`` に固定する。
+    以後の ``from cue.X import ...`` は確実にこのパッケージを参照する。
+    """
+    import importlib.util
+
+    cue_pkg_dir = here / "cue"
+    cue_init = cue_pkg_dir / "__init__.py"
+
+    if not cue_init.exists():
+        raise RuntimeError(
+            f"cue/__init__.py が見つかりません: {cue_init}\n"
+            f"    cue/ ディレクトリと cue.py を同じ場所 ({here}) に配置してください。"
+        )
+
+    spec = importlib.util.spec_from_file_location(
+        "cue",
+        str(cue_init),
+        submodule_search_locations=[str(cue_pkg_dir)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cue/__init__.py の spec 構築に失敗: {cue_init}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["cue"] = module
+    spec.loader.exec_module(module)
 
 
 def _clear_cue_modules_cache() -> None:
