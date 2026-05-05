@@ -157,75 +157,89 @@ def test_capture_resolve_globals_uses_builtins_fallback(launcher, monkeypatch):
     assert bmd is sentinel
 
 
-# ----- sys.modules['cue'] 名前衝突対策 -----
+# ----- sys.modules キャッシュクリア (Resolve 長時間プロセス対策) -----
 
 
-def test_drop_non_package_cue_removes_launcher_module(launcher):
+def _saved_cue_modules() -> dict:
+    """テスト前後で `cue.*` の sys.modules 状態を退避するヘルパ。"""
+    return {k: v for k, v in sys.modules.items() if k == "cue" or k.startswith("cue.")}
+
+
+def _restore_cue_modules(saved: dict) -> None:
+    # 現在登録されている cue.* を一旦消してから元の状態を復元
+    for k in list(sys.modules):
+        if k == "cue" or k.startswith("cue."):
+            del sys.modules[k]
+    sys.modules.update(saved)
+
+
+def test_clear_cache_removes_launcher_module(launcher):
     """Resolve が cue.py を sys.modules['cue'] に登録した状況で、それを除去できる。"""
     import types
-    fake_launcher_module = types.ModuleType("cue")
-    fake_launcher_module.__file__ = "/somewhere/cue.py"
-    # __path__ を持たない = パッケージではない
-    assert not hasattr(fake_launcher_module, "__path__")
-
-    saved = sys.modules.get("cue")
-    sys.modules["cue"] = fake_launcher_module
+    saved = _saved_cue_modules()
     try:
-        launcher["_drop_non_package_cue_from_sys_modules"]()
+        # 起動シナリオ再現: cue が非パッケージとして登録されている
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+        sys.modules["cue"] = types.ModuleType("cue")
+        launcher["_clear_cue_modules_cache"]()
         assert "cue" not in sys.modules
     finally:
-        if saved is not None:
-            sys.modules["cue"] = saved
-        else:
-            sys.modules.pop("cue", None)
+        _restore_cue_modules(saved)
 
 
-def test_drop_non_package_cue_keeps_real_package(launcher):
-    """sys.modules['cue'] が本物のパッケージ (``__path__`` あり) なら触らない。"""
+def test_clear_cache_removes_real_package_too(launcher):
+    """``cue.*`` の停滞キャッシュも全削除される (開発中の差分反映用)。"""
     import types
-    fake_package = types.ModuleType("cue")
-    fake_package.__path__ = ["/fake/cue"]  # パッケージマーカー
-
-    saved = sys.modules.get("cue")
-    sys.modules["cue"] = fake_package
+    saved = _saved_cue_modules()
     try:
-        launcher["_drop_non_package_cue_from_sys_modules"]()
-        assert sys.modules.get("cue") is fake_package
-    finally:
-        if saved is not None:
-            sys.modules["cue"] = saved
-        else:
-            sys.modules.pop("cue", None)
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+        # 本物のパッケージらしさで登録 (__path__ あり)
+        pkg = types.ModuleType("cue")
+        pkg.__path__ = ["/fake/cue"]
+        sys.modules["cue"] = pkg
+        sys.modules["cue.core"] = types.ModuleType("cue.core")
+        sys.modules["cue.ui.main_window"] = types.ModuleType("cue.ui.main_window")
 
+        launcher["_clear_cue_modules_cache"]()
 
-def test_drop_non_package_cue_handles_absent_module(launcher):
-    """sys.modules['cue'] が無くても例外を出さない。"""
-    saved = sys.modules.pop("cue", None)
-    try:
-        # 例外なく完了することの確認
-        launcher["_drop_non_package_cue_from_sys_modules"]()
         assert "cue" not in sys.modules
+        assert "cue.core" not in sys.modules
+        assert "cue.ui.main_window" not in sys.modules
     finally:
-        if saved is not None:
-            sys.modules["cue"] = saved
+        _restore_cue_modules(saved)
 
 
-def test_ensure_package_on_path_clears_launcher_module(launcher):
-    """``_ensure_package_on_path()`` の中で sys.modules['cue'] のクリーンアップも走る。"""
+def test_clear_cache_handles_absent_modules(launcher):
+    """``cue.*`` が一つも登録されていなくても例外を出さない。"""
+    saved = _saved_cue_modules()
+    try:
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+        launcher["_clear_cue_modules_cache"]()  # 例外なく完了
+    finally:
+        _restore_cue_modules(saved)
+
+
+def test_ensure_package_on_path_calls_clear_cache(launcher):
+    """``_ensure_package_on_path()`` 経由でもキャッシュクリアが走る。"""
     import types
-    # _locate_package_parent を一時的に固定値返しに差し替え
+    saved = _saved_cue_modules()
     original_locate = launcher["_locate_package_parent"]
     launcher["_locate_package_parent"] = lambda: REPO_ROOT
-    fake_launcher = types.ModuleType("cue")
-    saved = sys.modules.get("cue")
-    sys.modules["cue"] = fake_launcher
     try:
+        for k in list(sys.modules):
+            if k == "cue" or k.startswith("cue."):
+                del sys.modules[k]
+        sys.modules["cue.ui.main_window"] = types.ModuleType("cue.ui.main_window")
+
         launcher["_ensure_package_on_path"]()
-        # 登録されていた non-package が外れている
-        assert sys.modules.get("cue") is not fake_launcher
+
+        assert "cue.ui.main_window" not in sys.modules
     finally:
         launcher["_locate_package_parent"] = original_locate
-        if saved is not None:
-            sys.modules["cue"] = saved
-        else:
-            sys.modules.pop("cue", None)
+        _restore_cue_modules(saved)

@@ -34,10 +34,12 @@ def _ensure_package_on_path() -> None:
     Resolve は ``exec()`` ベースでスクリプトを実行するため ``__file__`` が
     未定義のことがある。複数のフォールバックで自身の所在を特定する。
 
-    また、Resolve は起動時に ``cue.py`` を ``sys.modules['cue']`` として
-    登録することがある (Workspace > Scripts のスクリプト loader 実装による)。
-    これがあると ``from cue.core import ...`` が「``cue`` is not a package」で
-    失敗するため、パッケージ ``cue/`` をロードする前に競合する登録を解除する。
+    また、Resolve は長時間プロセスでモジュールキャッシュ (``sys.modules``) を
+    抱え続けるため、開発中にファイルを更新しても再実行時に古いクラス定義が
+    再利用されてしまう。``_clear_cue_modules_cache()`` で都度キャッシュを
+    パージし、毎回ディスクからフレッシュにロードさせる。
+    Resolve loader が ``cue.py`` を ``sys.modules['cue']`` に登録する
+    ケースにもこのクリアで対応できる (パッケージ・非パッケージ問わず除去)。
     """
     here = _locate_package_parent()
     if here is None:
@@ -51,26 +53,29 @@ def _ensure_package_on_path() -> None:
         )
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
-    _drop_non_package_cue_from_sys_modules()
+    _clear_cue_modules_cache()
 
 
-def _drop_non_package_cue_from_sys_modules() -> None:
-    """``sys.modules['cue']`` がパッケージでない (=ランチャー自身) なら除去する。
+def _clear_cue_modules_cache() -> None:
+    """``sys.modules`` 内の ``cue`` および ``cue.*`` をすべて除去する。
 
-    Resolve の Script loader は ``cue.py`` を ``sys.modules['cue']`` として
-    登録することがあり、後続の ``from cue.core import ...`` がそれを見つけて
-    「``cue`` is not a package」で失敗する原因になる。
+    Resolve は同一 Python プロセスを使い回すため、開発中にファイルを更新しても
+    過去ロード時のクラス/関数定義が再利用される。これによりファイル上で
+    シグネチャを変更しても古い ``MainWindow`` が呼び出され
+    ``TypeError: ... unexpected keyword argument 'bmd'`` のような症状が出る。
 
-    パッケージは ``__path__`` 属性を持つ (モジュールは持たない) ので、これで
-    両者を判別する。除去後の最初の ``import cue`` は ``cue/__init__.py``
-    (= 本来のパッケージ) を解決する。
+    本関数はパッケージか単発スクリプトかを問わず ``cue`` 名前空間のキャッシュを
+    全削除する。次の ``import cue.xxx`` は必ずディスクから再ロードされる。
 
-    ランチャー自身の現在の実行は ``sys.modules`` 上の参照削除では止まらない
-    (関数オブジェクト等はローカル参照で生きている) ので影響なし。
+    現在実行中のランチャー (``cue.py``) 自体は ``sys.modules`` 上の参照を
+    削除されてもローカルの関数オブジェクトは生きているので影響しない。
     """
-    existing = sys.modules.get("cue")
-    if existing is not None and not hasattr(existing, "__path__"):
-        del sys.modules["cue"]
+    stale = [
+        name for name in list(sys.modules)
+        if name == "cue" or name.startswith("cue.")
+    ]
+    for name in stale:
+        del sys.modules[name]
 
 
 def _locate_package_parent() -> Path | None:
