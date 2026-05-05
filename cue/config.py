@@ -106,6 +106,11 @@ DEFAULT_SCALE: float = 1.0
 # ----- 矢印プリセット -----
 # 「矢印の根元位置 (画面のどこに矢印が表示されるか)」基準。
 # pos_x, pos_y は 0.0-1.0 の正規化座標 (左上原点, Resolve の標準とは別途変換する)。
+#
+# 8方向 (top_right / right / ... ) は画面の縁から中央被写体を指す矢印。
+# "center" だけは別系統で、"画面中央付近の被写体を真上から指す pin/tag 風"。
+# 用途: 中央寄りの被写体に「ここ!」と注意を向けたいとき。
+# ユーザーは pos_y を下げて (例 0.35) 被写体の真上に来るよう調整して使う想定。
 
 ARROW_DIRECTIONS: dict[str, dict[str, float | str]] = {
     "top_right":    {"asset": "arrow_tr.png", "abbr": "tr", "pos_x": 0.80, "pos_y": 0.20, "label": "右上"},
@@ -116,7 +121,7 @@ ARROW_DIRECTIONS: dict[str, dict[str, float | str]] = {
     "left":         {"asset": "arrow_l.png",  "abbr": "l",  "pos_x": 0.15, "pos_y": 0.50, "label": "左"},
     "top_left":     {"asset": "arrow_tl.png", "abbr": "tl", "pos_x": 0.20, "pos_y": 0.20, "label": "左上"},
     "top":          {"asset": "arrow_t.png",  "abbr": "t",  "pos_x": 0.50, "pos_y": 0.15, "label": "上"},
-    "center":       {"asset": "arrow_c.png",  "abbr": "c",  "pos_x": 0.50, "pos_y": 0.50, "label": "中央指し"},
+    "center":       {"asset": "arrow_c.png",  "abbr": "c",  "pos_x": 0.50, "pos_y": 0.50, "label": "下向き(中央)"},
 }
 
 

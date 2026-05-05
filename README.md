@@ -14,7 +14,7 @@ DaVinci Resolve Studio 20 (Windows) 用の演出自動化ツール。
 
 ### 矢印 (arrow)
 
-- 8方向プリセット (右上 / 右 / 右下 / 下 / 左下 / 左 / 左上 / 上 / 中央指し)
+- 9プリセット: 8方向 (右上 / 右 / 右下 / 下 / 左下 / 左 / 左上 / 上) + 中央真上から指す pin/tag 風 (`下向き(中央)`)
 - 表示位置・サイズ・表示時間・フェードイン/アウトの数値調整
 
 ### 囲み枠 (box)
@@ -80,7 +80,7 @@ DaVinci Resolve Studio 20 (Windows) 用の演出自動化ツール。
 | `arrow_l.png`      | 左   (left)            |
 | `arrow_tl.png`     | 左上 (top-left)        |
 | `arrow_t.png`      | 上   (top)             |
-| `arrow_c.png`      | 中央指し (center)      |
+| `arrow_c.png`      | 下向き(中央) — 中央被写体を真上から指す pin/tag 風 |
 
 PNG は透過背景、推奨 1920x1080 (位置決めはエフェクト側で正規化座標 0.0-1.0 を使う)。
 
