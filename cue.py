@@ -220,6 +220,57 @@ def _capture_resolve_globals() -> tuple[Any | None, Any | None]:
     return bmd_module, fusion_obj
 
 
+_REQUIRED_MAIN_WINDOW_PARAMS = ("api", "bmd", "fusion")
+"""``MainWindow.__init__`` に存在するべきパラメータ。古い版を検出する基準。"""
+
+
+def _diagnose_main_window(main_window_cls: Any, cue_pkg: Any) -> str | None:
+    """``MainWindow`` がランチャーと整合する定義かを確認。
+
+    シグネチャに ``api`` / ``bmd`` / ``fusion`` 全てが含まれていなければ、
+    どのファイルが読まれているかを含む詳細エラー文を返す。整合していれば
+    ``None`` を返す。
+
+    主な原因 (どれか) の特定材料になる:
+      - sys.path 上に旧 cue/ が残っていて優先解決されている
+      - .pyc キャッシュが古い (__pycache__ の削除で解消)
+      - 配置ファイルの更新漏れ
+    """
+    import inspect
+
+    try:
+        sig = inspect.signature(main_window_cls.__init__)
+    except Exception as e:  # noqa: BLE001
+        return f"[cue] MainWindow.__init__ のシグネチャ取得に失敗: {e}"
+
+    actual = set(sig.parameters)
+    missing = [p for p in _REQUIRED_MAIN_WINDOW_PARAMS if p not in actual]
+    if not missing:
+        return None  # 想定通り
+
+    try:
+        mw_file = inspect.getfile(main_window_cls)
+    except Exception:  # noqa: BLE001
+        mw_file = "<unknown>"
+    cue_file = getattr(cue_pkg, "__file__", "<unknown>")
+
+    return (
+        "[cue] MainWindow が古い定義です (パラメータ不足: "
+        + ", ".join(missing) + ")\n"
+        f"      シグネチャ : {sig}\n"
+        f"      MainWindow : {mw_file}\n"
+        f"      cue package: {cue_file}\n"
+        "対処手順:\n"
+        "  1. 上記 'MainWindow' のファイルを最新版に差し替える\n"
+        "     (差し替え済みのつもりなら、別の場所から読まれていないか確認)\n"
+        "  2. その親フォルダ内の __pycache__ ディレクトリを削除する\n"
+        "     (古い .pyc が優先される場合あり)\n"
+        "  3. Resolve を完全に終了 → 再起動 (Python プロセス丸ごと破棄)\n"
+        "  4. sys.path 上に旧 cue/ が無いか確認:\n"
+        "     Workspace > Console で `import sys; print(sys.path)` を実行"
+    )
+
+
 def main() -> int:
     try:
         _ensure_package_on_path()
@@ -232,10 +283,21 @@ def main() -> int:
     bmd_module, fusion_obj = _capture_resolve_globals()
 
     try:
+        import cue as _cue_pkg  # 診断用にパッケージ本体への参照を取る
         from cue.core.resolve_api import ResolveAPI, ResolveConnectionError
         from cue.ui.main_window import MainWindow
     except Exception:  # noqa: BLE001
         traceback.print_exc()
+        return 1
+
+    # ----- 診断: 想定通りの MainWindow が import されているか確認 -----
+    # 「ファイルは新版なのに MainWindow が bmd 引数を受け付けない」事象は、
+    # sys.path 上に別の cue/ パッケージがある、または Python プロセスの
+    # キャッシュに古い定義が残留しているケース。
+    # sig が古ければ「どのファイルが読まれているか」を明示してユーザーに伝える。
+    diag_err = _diagnose_main_window(MainWindow, _cue_pkg)
+    if diag_err is not None:
+        print(diag_err)
         return 1
 
     if bmd_module is None:

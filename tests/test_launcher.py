@@ -225,6 +225,45 @@ def test_clear_cache_handles_absent_modules(launcher):
         _restore_cue_modules(saved)
 
 
+# ----- MainWindow シグネチャ診断 -----
+
+
+def test_diagnose_main_window_returns_none_for_correct_signature(launcher):
+    """正しい (api, bmd, fusion) シグネチャの MainWindow なら診断 OK (None)。"""
+    class GoodMainWindow:
+        def __init__(self, api, bmd, fusion):
+            pass
+    import types
+    fake_pkg = types.ModuleType("cue")
+    fake_pkg.__file__ = "/fake/cue/__init__.py"
+    assert launcher["_diagnose_main_window"](GoodMainWindow, fake_pkg) is None
+
+
+def test_diagnose_main_window_detects_missing_bmd(launcher):
+    """``bmd`` が無い古い MainWindow を検出し、ファイルパスを含むエラー文を返す。"""
+    class OldMainWindow:
+        def __init__(self, api):  # 旧シグネチャ
+            pass
+    import types
+    fake_pkg = types.ModuleType("cue")
+    fake_pkg.__file__ = "/fake/cue/__init__.py"
+    err = launcher["_diagnose_main_window"](OldMainWindow, fake_pkg)
+    assert err is not None
+    assert "bmd" in err
+    assert "対処" in err
+    assert "Resolve を完全に終了" in err
+
+
+def test_diagnose_main_window_detects_missing_fusion(launcher):
+    class PartialMainWindow:
+        def __init__(self, api, bmd):  # fusion 欠
+            pass
+    import types
+    err = launcher["_diagnose_main_window"](PartialMainWindow, types.ModuleType("cue"))
+    assert err is not None
+    assert "fusion" in err
+
+
 def test_ensure_package_on_path_calls_clear_cache(launcher):
     """``_ensure_package_on_path()`` 経由でもキャッシュクリアが走る。"""
     import types
